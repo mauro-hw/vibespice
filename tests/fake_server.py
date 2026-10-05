@@ -1,5 +1,6 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026 Mauro Rodriguez Blasco
+# Additional term under section 7(b) of the license: see NOTICE.
 """
 Fake Open WebUI to test the agent without a real server.
 
@@ -11,7 +12,8 @@ with prompt_tokens). The "model" follows a fixed script per scenario.
 
 Direct use (to play by hand):
     python3 tests/fake_server.py challenge2 18080
-    OWUI_URL=http://127.0.0.1:18080 OWUI_API_KEY=sk-test python3 spice_agent.py --challenge 2
+    VIBESPICE_URL=http://127.0.0.1:18080 VIBESPICE_API_KEY=sk-test \
+        VIBESPICE_MODEL=qwen3:32b python3 -m vibespice bench 2
 """
 from __future__ import annotations
 

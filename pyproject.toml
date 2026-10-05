@@ -1,0 +1,31 @@
+[build-system]
+requires = ["flit_core>=4,<5"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "vibespice"
+dynamic = ["version"]
+description = "Iterative SPICE simulation agent: a language model designs analog circuits with ngspice, and every answer is verified by re-simulating it"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Mauro Rodriguez Blasco" }]
+keywords = ["spice", "ngspice", "llm", "agent", "analog", "circuit-design"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+# Standard library only: no runtime dependencies
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/mauro-hw/vibespice-app"
+Changelog = "https://github.com/mauro-hw/vibespice-app/blob/main/CHANGELOG.md"
+
+[project.scripts]
+vibespice = "vibespice.cli:main"

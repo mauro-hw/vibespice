@@ -5,17 +5,30 @@ on this repository.
 
 ## What this is
 
-vibespice measures how well a language model designs analog circuits. `spice_agent.py` talks
-to the model through the Open WebUI API and runs ngspice locally, in a loop, until the model
-gives a final answer; that answer is then verified independently by re-simulating it.
+vibespice is an agent that designs and simulates analog circuits from a prompt
+(`vibespice run`). It talks to a language model through the Open WebUI API and runs ngspice
+locally, in a loop, until the model gives a final answer. It also has a benchmark
+(`vibespice bench`): challenges whose answers are verified independently by re-simulating
+them.
 
 ## Layout
 
-- `spice_agent.py`: CLI, Open WebUI client, agent loop, logs, verification and self-test.
-- `spice_tools.py`: tools offered to the model (`simulate`, `analyze_tolerances`,
+Everything lives in the `vibespice/` package (`python3 -m vibespice`, or the `vibespice`
+command once installed):
+
+- `vibespice/cli.py`: the commands (`run`, `bench`, `check`, `status`, `selftest`,
+  `analyze`) and the guided menu. Nothing else parses arguments.
+- `vibespice/config.py`: the configuration file (profiles), environment variables and the
+  logs folder, always outside the repository.
+- `vibespice/agent.py`: Open WebUI client, agent loop, logs and verification of one run.
+- `vibespice/batch.py`: running jobs one after another, time limits and estimates.
+- `vibespice/checks.py`: `check` (connection) and `selftest` (tools and verifiers, no AI).
+- `vibespice/console.py`: terminal output, notification and keeping the computer awake.
+- `vibespice/tools.py`: tools offered to the model (`simulate`, `analyze_tolerances`,
   `standard_values`, `calculate`) and their schemas.
-- `challenges.py`: challenges, verifiers and reference answers (correct and wrong).
-- `analyze_logs.py`: statistics of `logs/` (read-only; the tests use it too).
+- `vibespice/challenges.py`: challenges, verifiers and reference answers (correct and wrong).
+- `vibespice/analyze.py`: statistics of `logs/` (read-only; the tests use it too).
+- `pyproject.toml`: package metadata. No runtime dependencies.
 - `tests/`: fake Open WebUI with a scripted "model" and end-to-end tests.
 - `CHANGELOG.md`: what changed in each version.
 
@@ -24,12 +37,22 @@ gives a final answer; that answer is then verified independently by re-simulatin
 - **Standard library only**, compatible with Python 3.11 to 3.14.
 - **License header on every code file**, right after the shebang if there is one:
   ```python
-  # SPDX-License-Identifier: Apache-2.0
+  # SPDX-License-Identifier: AGPL-3.0-only
   # Copyright 2026 Mauro Rodriguez Blasco
+  # Additional term under section 7(b) of the license: see NOTICE.
   ```
-  Keep `LICENSE` unchanged and keep the attribution in `NOTICE`.
+  The license is the GNU AGPL v3 only. Keep `LICENSE` unchanged (it is the official text
+  from gnu.org) and keep `NOTICE`, with its attribution term.
+- **Anything served over a network must link to its source code** (section 13 of the
+  AGPL). The planned web app shows that link, and `vibespice --version` prints it.
 - **English everywhere**: code, identifiers, comments, messages, prompts and docs.
-- **Never commit `agent.conf`, keys or `logs/`.** They are in `.gitignore`.
+- **Nothing personal lives in the repository.** The configuration, with the API key, is
+  `~/.config/vibespice/config.toml` and the logs go to `~/.local/share/vibespice/logs/`.
+  Never commit either; `config.toml` and `logs/` are in `.gitignore` in case someone points
+  them at the repository.
+- **Tests never read the developer's configuration or logs.** `tests/run_tests.py` gives
+  each run its own `XDG_CONFIG_HOME` and `XDG_DATA_HOME` and drops every `VIBESPICE_*`
+  variable; keep it that way when adding tests.
 - **Model netlists run on the user's machine.** Keep the directive allow-list and the block
   on `.control`, `shell`, `.include`, `.lib` and `.osdi`. Do not loosen the simulation
   timeout or the Monte Carlo cap without a reason recorded in the changelog.
@@ -49,7 +72,7 @@ Both must pass. Check their exit code (0), not just the text: a `grep` over the 
 succeeds even if there are lines with ❌.
 
 ```bash
-python3 spice_agent.py --selftest
+python3 -m vibespice selftest
 python3 tests/run_tests.py
 ```
 
@@ -62,7 +85,7 @@ the relevant logs or output when it matters.
 ## Versions and changelog
 
 - The project follows [Semantic Versioning](https://semver.org/). The version lives in
-  `__version__` in `spice_agent.py` and is written to every log next to the git commit.
+  `__version__` in `vibespice/__init__.py` and is written to every log next to the git commit.
 - `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/). Every change that
   a user would notice gets a line under `## [Unreleased]` **in the same commit**.
 - To release: set `__version__` (for example `0.1.0`), rename `## [Unreleased]` to

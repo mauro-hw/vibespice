@@ -1,5 +1,6 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026 Mauro Rodriguez Blasco
+# Additional term under section 7(b) of the license: see NOTICE.
 """
 Progressive challenges to measure a model with ngspice.
 
@@ -17,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-import spice_tools as hs
+from . import tools as hs
 
 Result = list[tuple[bool, str]]   # [(correct, explanation), ...]
 

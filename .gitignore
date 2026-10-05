@@ -1,7 +1,7 @@
 # --- vibespice ---
-# Local configuration with your API key: NEVER committed
-agent.conf
-# Run logs (conversations, results)
+# The configuration and the logs live outside the repository (~/.config/vibespice,
+# ~/.local/share/vibespice); just in case someone points them here: NEVER committed
+config.toml
 logs/
 
 # --- Python ---

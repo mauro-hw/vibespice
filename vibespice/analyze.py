@@ -1,15 +1,15 @@
-#!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026 Mauro Rodriguez Blasco
+# Additional term under section 7(b) of the license: see NOTICE.
 """
-Statistics of the runs saved in logs/ (standard library only).
+Statistics of the saved runs (standard library only).
 
-    python3 analyze_logs.py                       # everything in logs/
-    python3 analyze_logs.py --challenge 6         # a single challenge
-    python3 analyze_logs.py --last 12             # the 12 most recent runs
-    python3 analyze_logs.py --since 20260929 --md report.md
-    python3 analyze_logs.py --folder logs/before-change
-    python3 analyze_logs.py --challenge 7 --by-version   # before / after a change
+    vibespice analyze                       # everything in the logs folder
+    vibespice analyze --challenge 6         # a single challenge
+    vibespice analyze --last 12             # the 12 most recent runs
+    vibespice analyze --since 20260929 --md report.md
+    vibespice analyze --folder ~/old-logs
+    vibespice analyze --challenge 7 --by-version   # before / after a change
 
 Groups by challenge, model, reasoning and batch kind, and counts what helps to learn how
 the model works: pass rate, time, tool use, measurements that work, unmeasured results,
@@ -22,13 +22,12 @@ import argparse
 import json
 import re
 import statistics
-import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import spice_tools as hs
+from . import tools as hs
+from .console import tilde
 
-DIR = Path(__file__).resolve().parent
 RE_BAD_REGION = re.compile(r"\((saturation|cutoff) region\)")
 
 
@@ -168,28 +167,25 @@ def report(runs: list[dict], by_version: bool = False) -> list[str]:
     return lines
 
 
-def main() -> int:
-    p = argparse.ArgumentParser(description="Statistics of vibespice's logs/")
-    p.add_argument("--folder", default=str(DIR / "logs"), help="folder with the .json files")
+def add_arguments(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--folder", help="folder with the .json files (default: the logs folder)")
     p.add_argument("--challenge", help="only this challenge")
     p.add_argument("--since", help="only from this date on (YYYYMMDD)")
     p.add_argument("--last", type=int, help="only the N most recent runs")
     p.add_argument("--md", help="also save the report to this Markdown file")
     p.add_argument("--by-version", action="store_true",
                    help="also split by code version (compare before and after a change)")
-    args = p.parse_args()
-    folder = Path(args.folder)
+
+
+def run(args: argparse.Namespace, default_folder: Path) -> int:
+    folder = Path(args.folder).expanduser() if args.folder else default_folder
     if not folder.is_dir():
-        print(f"Folder {folder} does not exist")
+        print(f"Folder {tilde(folder)} does not exist (no runs saved there yet)")
         return 2
     runs = read(folder, args)
-    lines = [f"Logs in {folder} · {len(runs)} runs", ""] + report(runs, args.by_version)
+    lines = [f"Logs in {tilde(folder)} · {len(runs)} runs", ""] + report(runs, args.by_version)
     print("\n".join(lines))
     if args.md:
         Path(args.md).write_text("```\n" + "\n".join(lines) + "\n```\n", encoding="utf-8")
         print(f"\nReport saved to {args.md}")
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
