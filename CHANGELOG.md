@@ -34,6 +34,7 @@ First public version, planned as 0.1.0.
   the git commit of the code (`+changes` when there were uncommitted changes).
 - `--selftest` and `tests/run_tests.py` (end-to-end tests against a fake Open WebUI).
 - Guided menu when run without arguments in a terminal.
+- Apache-2.0 license with a `NOTICE` file and SPDX license headers in every source file.
 
 ### Fixed
 

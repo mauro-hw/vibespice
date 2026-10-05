@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Mauro Rodriguez Blasco
 """
 Tools the agent offers to the model: ngspice and a few helpers.
 

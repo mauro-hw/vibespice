@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Mauro Rodriguez Blasco
 """
 Progressive challenges to measure a model with ngspice.
 

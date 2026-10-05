@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Mauro Rodriguez Blasco
 """
 Statistics of the runs saved in logs/ (standard library only).
 

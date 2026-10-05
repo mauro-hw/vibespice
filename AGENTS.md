@@ -22,6 +22,12 @@ gives a final answer; that answer is then verified independently by re-simulatin
 ## Rules
 
 - **Standard library only**, compatible with Python 3.11 to 3.14.
+- **License header on every code file**, right after the shebang if there is one:
+  ```python
+  # SPDX-License-Identifier: Apache-2.0
+  # Copyright 2026 Mauro Rodriguez Blasco
+  ```
+  Keep `LICENSE` unchanged and keep the attribution in `NOTICE`.
 - **English everywhere**: code, identifiers, comments, messages, prompts and docs.
 - **Never commit `agent.conf`, keys or `logs/`.** They are in `.gitignore`.
 - **Model netlists run on the user's machine.** Keep the directive allow-list and the block
