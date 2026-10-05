@@ -57,7 +57,7 @@ Windows through WSL.
 **b) Install and configure.**
 
 ```bash
-pipx install git+https://github.com/mauro-hw/vibespice-app
+pipx install git+https://github.com/mauro-hw/vibespice
 vibespice init                             # creates ~/.config/vibespice/config.toml
 nano ~/.config/vibespice/config.toml       # paste your key
 ```
@@ -68,8 +68,8 @@ WebUI; section 6 explains each one. If you don't know the exact model id, leave 
 empty: step d lists the models available to you. To update vibespice later:
 `pipx upgrade vibespice`.
 
-> **Without installing.** From a clone (`git clone https://github.com/mauro-hw/vibespice-app`
-> and `cd vibespice-app`), type `python3 -m vibespice` wherever this README says
+> **Without installing.** From a clone (`git clone https://github.com/mauro-hw/vibespice`
+> and `cd vibespice`), type `python3 -m vibespice` wherever this README says
 > `vibespice`.
 
 **c) Local test, without AI.** Checks your ngspice and the verifiers:
