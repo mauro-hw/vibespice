@@ -7,40 +7,33 @@ The model (on your server) thinks and decides; this program, on your computer, r
 ngspice and sends the results back, in a loop, until it gives a final answer. That
 answer is then verified independently (by re-simulating) and everything is logged.
 
-Quick use:
-    python3 -m vibespice --check            # connection, ngspice, model, tools
-    python3 -m vibespice --selftest         # local test without AI
-    python3 -m vibespice --list             # available challenges
-    python3 -m vibespice --challenge 2      # run a challenge
-    python3 -m vibespice --challenge 2 --repeat 5 --think no
-    python3 -m vibespice --task "Design a 24 V to 3.3 V divider with E12"
+This module holds the configuration, the Open WebUI client, the agent loop, the logs and
+the verification of one run. The commands live in cli.py.
 
 Standard library only (tested with Python 3.11 to 3.14).
 """
 from __future__ import annotations
 
-import argparse
 import csv
 import json
 import math
 import os
 import re
-import shutil
-import statistics
 import ssl
 import subprocess
-import sys
-import threading
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from . import __version__
+from .console import BLUE, BOLD, GREEN, GREY, RED, YELLOW, Heartbeat, c, fmt_dur, fmt_tok, \
+    shorten, tilde
 
 DIR = Path(__file__).resolve().parent     # the package (for the git commit of the code)
 ROOT = DIR.parent                         # the clone: agent.conf and logs/
+LOGS = ROOT / "logs"
 
 # ---------------------------------------------------------------------------
 # Configuration: agent.conf (KEY=value) and environment variables (which take priority)
@@ -106,128 +99,6 @@ os.environ["NGSPICE"] = CONF["NGSPICE"]   # before importing the tools
 
 from . import tools as hs        # noqa: E402
 from . import challenges as C    # noqa: E402
-from . import analyze            # noqa: E402
-
-# ---------------------------------------------------------------------------
-# Console
-# ---------------------------------------------------------------------------
-_COLOR = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
-
-
-def c(text: str, code: str) -> str:
-    return f"\033[{code}m{text}\033[0m" if _COLOR else text
-
-
-GREEN, RED, YELLOW, BLUE, GREY, BOLD = "32", "31", "33", "36", "90", "1"
-
-
-def shorten(text: str, n: int) -> str:
-    text = text.strip()
-    return text if len(text) <= n else text[:n].rstrip() + " …"
-
-
-def fmt_tok(n) -> str:
-    try:
-        n = int(n)
-    except (TypeError, ValueError):
-        return "?"
-    return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
-
-
-def fmt_dur(s: float) -> str:
-    return f"{s:.1f} s" if s < 90 else f"{int(s // 60)} min {int(s % 60)} s"
-
-
-class Heartbeat:
-    """While waiting (for the model or a tool), rewrites a line with the elapsed time every few
-    seconds. Only in a terminal: it writes nothing to files or pipes."""
-
-    def __init__(self, text: str, every: float = 5.0):
-        self.text, self.every = text, every
-        self.active = sys.stdout.isatty()
-        self._stop = threading.Event()
-
-    def __enter__(self):
-        if self.active:
-            self._t0 = time.perf_counter()
-            self._thread = threading.Thread(target=self._loop, daemon=True)
-            self._thread.start()
-        return self
-
-    def _loop(self) -> None:
-        while not self._stop.wait(self.every):
-            line = f"    ⏳ {self.text}… {fmt_dur(time.perf_counter() - self._t0)}"
-            print("\r" + c(line, GREY) + "\033[K", end="", flush=True)
-
-    def __exit__(self, *exc) -> bool:
-        if self.active:
-            self._stop.set()
-            self._thread.join()
-            print("\r\033[K", end="", flush=True)
-        return False
-
-
-def notify_done(title: str, text: str) -> None:
-    """Desktop notification when a batch finishes (if there is a desktop and notify-send)."""
-    if os.environ.get("VIBESPICE_NO_NOTIFY") or not (os.environ.get("DISPLAY")
-                                                     or os.environ.get("WAYLAND_DISPLAY")):
-        return
-    if shutil.which("notify-send"):
-        try:
-            subprocess.run(["notify-send", "-a", "vibespice", title, text],
-                           capture_output=True, timeout=5)
-        except (OSError, subprocess.SubprocessError):
-            pass
-
-
-def on_mains_power() -> bool:
-    """Is the laptop plugged in? (A machine without a battery, like a Raspberry Pi, counts as yes.)"""
-    has_battery = False
-    for d in Path("/sys/class/power_supply").glob("*"):
-        try:
-            kind = (d / "type").read_text().strip()
-            if kind == "Battery":
-                has_battery = True
-            elif kind in ("Mains", "USB") and (d / "online").read_text().strip() == "1":
-                return True
-        except OSError:
-            continue
-    return not has_battery
-
-
-def keep_awake() -> str:
-    """Stops the computer from suspending by itself while the agent works; says what it did.
-
-    Idle suspend, always; lid-close suspend, only on mains power (on battery, a closed laptop
-    still working could end up in a backpack). The screen still locks and you can suspend by
-    hand. Each inhibitor is held by a process that ends with the agent (tail --pid), so it
-    never stays behind even if the agent dies."""
-    wait = ["tail", f"--pid={os.getpid()}", "-f", "/dev/null"]
-    commands = []
-    if "GNOME" in os.environ.get("XDG_CURRENT_DESKTOP", "") \
-            and shutil.which("gnome-session-inhibit"):
-        commands.append(["gnome-session-inhibit", "--inhibit", "suspend", "--app-id", "vibespice",
-                         "--reason", "vibespice batch running", *wait])
-    elif shutil.which("systemd-inhibit"):
-        commands.append(["systemd-inhibit", "--what=sleep", "--who=vibespice",
-                         "--why=vibespice batch running", *wait])
-    lid = on_mains_power() and shutil.which("systemd-inhibit")
-    if lid:
-        commands.append(["systemd-inhibit", "--what=handle-lid-switch", "--who=vibespice",
-                         "--why=vibespice batch running", *wait])
-    done = 0
-    for command in commands:
-        try:
-            subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL)
-            done += 1
-        except OSError:
-            pass
-    if not done:
-        return ""
-    return ("The computer will not suspend by itself until it finishes"
-            + ("; with the charger plugged in, not when closing the lid either" if lid
-               else "; on battery, closing the lid does suspend it") + ".")
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +174,13 @@ class OWUIClient:
         if options:
             body["options"] = options
         return self._request("POST", "/api/chat/completions", body)
+
+
+def make_client(model: str | None = None) -> OWUIClient:
+    """The client for the configured server; raises APIError if the configuration is
+    incomplete."""
+    return OWUIClient(CONF["OWUI_URL"], CONF["OWUI_API_KEY"], model or CONF["OWUI_MODEL"],
+                      CONF["OWUI_CA"], float(CONF["LLM_TIMEOUT"]))
 
 
 def loaded_context(client: OWUIClient) -> int | None:
@@ -404,8 +282,8 @@ def call_summary(name: str, args) -> str:
 # ---------------------------------------------------------------------------
 class RunLog:
     def __init__(self, label: str):
-        folder = ROOT / "logs"
-        folder.mkdir(exist_ok=True)
+        folder = LOGS
+        folder.mkdir(parents=True, exist_ok=True)
         base = f"{datetime.now():%Y%m%d-%H%M%S}_{re.sub(r'[^A-Za-z0-9_-]+', '_', label)}"
         name, n = base, 1
         while (folder / f"{name}.md").exists() or (folder / f"{name}.json").exists():
@@ -823,7 +701,7 @@ def code_version() -> str:
 
 
 def append_csv(row: dict) -> None:
-    path = ROOT / "logs" / "summary.csv"
+    path = LOGS / "summary.csv"
     if path.exists():       # different columns: keep the old file aside and start another
         with path.open(encoding="utf-8", newline="") as f:
             header = next(csv.reader(f), [])
@@ -901,7 +779,7 @@ def run_once(client, task, challenge, args, label, num_ctx, n_rep=None) -> dict:
     finally:
         log.data.update(result=final_state, summary=st)
         log.save_json()
-        print(c(f"Log: {log.md.relative_to(ROOT)}", GREY))
+        print(c(f"Log: {tilde(log.md)}", GREY))
         append_csv({
             "date": f"{datetime.now():%Y-%m-%d %H:%M:%S}",
             "challenge": challenge.id if challenge else "free",
@@ -916,525 +794,4 @@ def run_once(client, task, challenge, args, label, num_ctx, n_rep=None) -> dict:
             "code": code_version(),
         })
     return {"state": final_state, "st": st}
-
-
-# ---------------------------------------------------------------------------
-# Time-limited batches and estimates
-# ---------------------------------------------------------------------------
-def estimate(done: int, total: int | None, t0: float, limit: float | None = None,
-             name: str = "runs") -> str:
-    """Progress line after each iteration: time spent and minutes left.
-
-    Batches are measured with wall-clock time (time.time), not a monotonic clock: the latter
-    does not advance while the computer is suspended, and the batch would run past its end."""
-    elapsed = time.time() - t0
-    avg = elapsed / done
-    txt = (f"⏱ {done}" + (f"/{total}" if total else "") + f" {name} in {elapsed / 60:.0f} min "
-           f"({avg / 60:.1f} min average)")
-    left = total - done if total else None
-    if limit:                             # only starts another one if it can finish it
-        by_time = int(max(0.0, limit - elapsed) // avg) if avg else 0
-        left = by_time if left is None else min(left, by_time)
-    if left is not None:
-        end = datetime.now() + timedelta(seconds=left * avg)
-        txt += f" · ≈ {left * avg / 60:.0f} min left · end ≈ {end:%H:%M}"
-    return txt
-
-
-def fits_another(elapsed: float, avg: float, limit: float | None) -> bool:
-    """Is there time for another iteration before the limit, given the average so far?"""
-    return not limit or elapsed + avg <= limit
-
-
-def limit_notice(limit: float, what: str) -> None:
-    end = datetime.now() + timedelta(seconds=limit)
-    print(c(f"⏱ Time limit: {limit / 60:.0f} min → finishes at the latest around "
-            f"{end:%H:%M} (does not start {what} if there is no time to finish it)", GREY))
-
-
-def history_seconds(challenge_id: str, model: str, think: str) -> list[float]:
-    """Durations of similar earlier runs, taken from logs/summary*.csv."""
-    out = []
-    for path in sorted((ROOT / "logs").glob("summary*.csv")):
-        try:
-            with path.open(encoding="utf-8", newline="") as f:
-                for row in csv.DictReader(f):
-                    if (row.get("challenge") == challenge_id and row.get("model") == model
-                            and row.get("think") == think
-                            and row.get("result") not in ("ERROR", "INTERRUPTED")):
-                        try:
-                            out.append(float(row["seconds"]))
-                        except (KeyError, ValueError, TypeError):
-                            pass
-        except OSError:
-            pass
-    return out
-
-
-def estimate_before(ids: list[str], times: int | None, model: str, think: str,
-                    limit: float | None) -> None:
-    """Before starting: how long each iteration and the batch usually take, from your history."""
-    medians, no_data = {}, []
-    for i in ids:
-        h = history_seconds(i, model, think)
-        if h:
-            medians[i] = statistics.median(h)
-        else:
-            no_data.append(i)
-    if not medians:
-        return
-    txt = "⏱ Based on your history, each run takes ≈ " + ", ".join(
-        f"{m / 60:.0f} min (challenge {i})" for i, m in medians.items())
-    total = sum(medians.values()) * times if times and not no_data else None
-    if limit:
-        total = min(total, limit) if total else limit
-    if total:
-        end = datetime.now() + timedelta(seconds=total)
-        txt += f" → this batch, ≈ {total / 60:.0f} min (end ≈ {end:%H:%M})"
-    if no_data:
-        txt += f" · no history for challenge {', '.join(no_data)}"
-    print(c(txt, GREY))
-
-
-def duration(text: str) -> float:
-    """'2h', '90m', '1h30', '45' (minutes) or '30s' → seconds."""
-    t = text.lower().replace(" ", "")
-    m = re.fullmatch(r"(\d+)s", t)
-    if m:
-        s = float(m.group(1))
-    else:
-        m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)(?:m|min)?)?", t)
-        s = (int(m.group(1) or 0) * 60 + int(m.group(2) or 0)) * 60.0 if m else 0
-    if s <= 0:
-        raise argparse.ArgumentTypeError(f"invalid duration: '{text}' (e.g. 2h, 90m or 1h30)")
-    return s
-
-
-# ---------------------------------------------------------------------------
-# Auxiliary commands
-# ---------------------------------------------------------------------------
-def check(client: OWUIClient | None) -> int:
-    failures = 0
-    print(c("1. ngspice", BOLD))
-    v = hs.ngspice_version()
-    if v:
-        r = hs.simulate_data("V1 in 0 DC 12\nR1 in out 14k\nR2 out 0 10k\n.op")
-        ok = abs(r["op"].get("v(out)", 0) - 5.0) < 1e-6
-        print(("  ✅ " if ok else "  ❌ ") + f"{v}; test divider: v(out) = "
-              f"{r['op'].get('v(out)')} V")
-        failures += not ok
-    else:
-        print(f"  ❌ '{hs.NGSPICE}' not found. Install ngspice (e.g. sudo apt install ngspice, "
-              "sudo dnf install ngspice or brew install ngspice) or set its path in NGSPICE.")
-        failures += 1
-    if client is None:
-        return failures + 1
-    print(c("2. Open WebUI", BOLD))
-    print(f"  URL: {client.url} · key: {client.key[:5]}…{client.key[-3:]}")
-    try:
-        mods = client.models()
-        print(f"  ✅ connected; {len(mods)} models visible to this key")
-        if client.model in mods:
-            print(f"  ✅ model '{client.model}' is available")
-        else:
-            print(f"  ❌ '{client.model}' is not listed. Models: {', '.join(mods[:15])}")
-            failures += 1
-    except APIError as e:
-        print(f"  ❌ {e}")
-        return failures + 1
-    print(c("3. Ollama (through Open WebUI, needs an admin key)", BOLD))
-    try:
-        print(f"  Ollama {client.ollama_version()}")
-        loaded = client.ollama_ps()
-        if not loaded:
-            print("  No model loaded on the GPU right now.")
-        for m in loaded:
-            vram = (m.get("size_vram") or 0) / 1e9
-            print(f"  loaded: {m.get('name')} · context {m.get('context_length', '?')} tokens · "
-                  f"{vram:.1f} GB in VRAM · expires {str(m.get('expires_at', '?'))[:19]}")
-    except APIError as e:
-        print(f"  (not available: {shorten(str(e), 120)})")
-    try:
-        f = client.model_card()
-        det, info = f.get("details") or {}, f.get("model_info") or {}
-        ctx = next((v for k, v in info.items() if k.endswith(".context_length")), "?")
-        cap = f.get("capabilities") or []
-        th = f.get("thinking") or {}
-        levels = ", ".join("no" if v is False else "yes" if v is True else str(v)
-                           for v in th.get("values") or []) or "does not reason"
-        default = th.get("default")
-        print(f"  {client.model}: {det.get('parameter_size', '?')} "
-              f"{det.get('quantization_level', '')} · native context {ctx}"
-              f" · tools: {'yes' if 'tools' in cap else 'no'}"
-              f" · images: {'yes' if 'vision' in cap else 'no'}")
-        print(f"  reasoning (--think): {levels}"
-              + (f" · default {'yes' if default is True else default}" if default is not None
-                 else ""))
-        profile = next((pr for pr in PROFILES if client.model.startswith(pr)), None)
-        print("  sampling: " + (f"agent profile '{profile}'" if profile else
-                                "the Modelfile's (the agent does not know this family)"))
-    except APIError as e:
-        print(f"  (model card not available: {shorten(str(e), 120)})")
-    print(c("4. Chat test", BOLD))
-    try:
-        t0 = time.perf_counter()
-        r = client.chat([{"role": "user", "content": "Reply with just the word: OK"}],
-                        options=model_options(client.model, False, None))
-        text, _ = split_thinking(r["choices"][0]["message"].get("content") or "")
-        if text:
-            print(f"  ✅ reply '{shorten(text, 60)}' in {fmt_dur(time.perf_counter() - t0)}")
-        else:
-            print("  ⚠ empty reply (the model answers but with no visible text)")
-    except (APIError, KeyError, IndexError) as e:
-        print(f"  ❌ {e}")
-        return failures + 1
-    print(c("5. Tool call test (native mode)", BOLD))
-    try:
-        t0 = time.perf_counter()
-        r = client.chat([{"role": "user", "content": "What is 1234 * 5678? Use the calculate "
-                          "tool; do not compute it yourself."}],
-                        tools=[e for e in hs.SCHEMAS if e["function"]["name"] == "calculate"],
-                        options=model_options(client.model, False, None))
-        m = r["choices"][0]["message"]
-        tc = m.get("tool_calls") or []
-        text, _ = split_thinking(m.get("content") or "")
-        if tc:
-            print(f"  ✅ requested {tc[0]['function']['name']}"
-                  f"({tc[0]['function'].get('arguments')}) in "
-                  f"{fmt_dur(time.perf_counter() - t0)} → native mode works")
-        elif calls_from_text(text):
-            print("  ⚠ wrote the call as text instead of using tool_calls → the agent "
-                  "understands it anyway, but also try --mode text")
-        else:
-            print(f"  ❌ did not call the tool; replied: '{shorten(text, 100)}'. "
-                  "Try --mode text.")
-            failures += 1
-    except (APIError, KeyError, IndexError) as e:
-        print(f"  ❌ {e}")
-        failures += 1
-    try:
-        for m in client.ollama_ps():
-            if client.model in (m.get("name"), m.get("model")):
-                print(f"  The server has it loaded with a context of "
-                      f"{m.get('context_length', '?')} tokens and "
-                      f"{(m.get('size_vram') or 0) / 1e9:.1f} GB in VRAM.")
-    except APIError:
-        pass
-    print(c("\nAll good." if not failures else f"\n{failures} check(s) with problems.",
-            GREEN if not failures else RED))
-    return failures
-
-
-def selftest() -> int:
-    """Tests tools and verifiers without AI (validates your ngspice installation)."""
-    failures = 0
-
-    def ok_if(cond: bool, text: str):
-        nonlocal failures
-        print(("  ✅ " if cond else "  ❌ ") + text)
-        failures += not cond
-
-    print(c("Tools", BOLD))
-    ok_if(hs.ngspice_version() is not None, f"ngspice found: {hs.ngspice_version()}")
-    d = hs.simulate_data("V1 in 0 DC 12\nR1 in out 18k\nR2 out 0 13k\n.op")
-    ok_if(abs(d["op"].get("v(out)", 0) - 5.032258) < 1e-5,
-          f"simulate: v(out) = {d['op'].get('v(out)')}")
-    d = hs.simulate_data("V1 in 0 DC 0 PULSE(0 1 0 1n 1n 1 2)\nR1 in out 1k\nC1 out 0 1u\n"
-                         ".tran 10u 5m\n.meas tran tau TRIG v(out) VAL=0.001 RISE=1 "
-                         "TARG v(out) VAL=0.63212 RISE=1")
-    ok_if(abs(d["meas"].get("tau", 0) - 1e-3) < 2e-5,
-          f".meas in a transient: τ = {d['meas'].get('tau')} s (≈ 1 ms)")
-    r = hs.tolerance_data("V1 in 0 DC 12\nR1 in out 14k\nR2 out 0 10k\n.op",
-                          {"R1": 1, "R2": 1}, "v(out)", "corners", target_value=5)
-    ok_if(abs(r["worst_error_pct"] - 1.1686) < 0.001,
-          f"corners: worst case {r['worst_error_pct']:.4f} % (≈ 1.1686 %)")
-    r = hs.tolerance_data("V1 in 0 DC 12\nR1 in out 14k\nR2 out 0 10k\n.op",
-                          {"R1": 2, "R2": 2}, "v(out)", "montecarlo", samples=400,
-                          distribution="uniform", target_value=5, error_limit_pct=2)
-    ok_if(95 <= r["yield_pct"] <= 100, f"Monte Carlo: yield {r['yield_pct']:.1f} % (≈ 98 %)")
-    r = hs.tolerance_data("V1 in 0 DC 0 PULSE(0 1 0 1n 1n 1 2)\nR1 in out 1k\nC1 out 0 1u\n"
-                          ".tran 10u 5m\n.meas tran tau TRIG v(out) VAL=0.001 RISE=1 "
-                          "TARG v(out) VAL=0.63212 RISE=1", {"R1": 5, "C1": 10}, "tau",
-                          "corners")
-    ok_if(abs(r["max"] / 1e-3 - 1.155) < 0.01,
-          f"tolerances on a .meas: τ max {r['max'] * 1e3:.4f} ms (≈ 1.155 ms)")
-    ok_if("11k" in hs.standard_values("11.1k", "E96"), "standard_values E96")
-    ok_if(hs.calculate("12*10k/(14k+10k)").endswith("= 5"), "calculate with SPICE suffixes")
-    s = hs.simulate("V1 a 0 DC 9\nR1 a b 7.2k\nR2 b 0 4.7k\nR3 b 0 14k\n.op")
-    ok_if("R1 = 7.2k: not in any" in s and "R2 = 4.7k: E3, E6, E12, E24\n" in s
-          and "R3 = 14k: E48, E96" in s, "simulate shows the E series of each value")
-    d = hs.simulate_data("V1 a 0 AC 1\nR1 a b 1k\nC1 b 0 1u\n.ac dec 10 100 100\n"
-                         ".meas ac f1 WHEN mag(v(b)/v(a))=0.7")
-    ok_if("f1" not in d["meas"] and "f1" in d["meas_failed"]
-          and any("vm(out)" in a for a in d["warnings"]),
-          "a .meas that ngspice rejects gives no false value and comes with a syntax hint")
-    d = hs.simulate_data("V1 a 0 AC 1\nR1 a b 1k\nC1 b 0 1u\n.ac dec 10 1 1k\n"
-                         ".meas ac f1 WHEN vm(b)=0.7071068\n.meas ac f2 WHEN vm(b)=1/sqrt(2)\n.op")
-    ok_if(abs(d["meas"].get("f1", 0) - 159.15) < 0.5 and "f2" in d["meas_failed"]
-          and any(".op" in a for a in d["warnings"])
-          and any("must be a number" in a for a in d["warnings"]),
-          "an .op next to .ac does not break the .meas, and .meas errors come with advice")
-    ok_if(hs.simulate("V1 a 0 1\n.control\nop\n.endc").startswith("ERROR"), "blocks .control")
-    d = hs.simulate_data("VCC vcc 0 DC 12\nRB vcc b 4.7MEG\nRC vcc c 4.7k\nQ1 c b 0 QN\n"
-                         "RB2 vcc b2 10k\nRC2 vcc c2 1k\nQ2 c2 b2 0 QN\n"
-                         ".model QN NPN(IS=6.734f BF=416.4 VAF=74.03)\n.op")
-    q1, q2 = d["devices"].get("q1", {}), d["devices"].get("q2", {})
-    ok_if(q1.get("region") == "active" and q2.get("region") == "saturation" and not d["errors"]
-          and abs(q1.get("vce", 0) - (12 - 4.7e3 * q1.get("ic", 0))) < 1e-3
-          and 1e-3 * 0.99 <= q1.get("ic", 0) * 1 < 5e-3,
-          "simulate gives Ic, Vce and region of each transistor (active / saturation)")
-    # A real mistake seen in challenge 7: base and collector swapped, with numbered nodes
-    s = hs.simulate("Vcc 1 0 DC 12\nR1 1 2 91k\nR2 2 0 18k\nRC 1 3 4.7k\nRE 4 0 1.2k\n"
-                    f"Q1 2 3 4 Q2N3904\n{C.MODEL_2N3904}\n.op")
-    good = hs.simulate("VCC vcc 0 DC 12\nR1 vcc b 91k\nR2 b 0 18k\nRC vcc c 4.7k\nRE e 0 1.2k\n"
-                       f"Q1 c b e Q2N3904\n{C.MODEL_2N3904}\n.op\nRX e x 1k")
-    ok_if("Q1 (NPN): collector → node 2 · base → node 3 · emitter → node 4" in s
-          and "R1: node 1 (+ of Vcc) – node 2 (collector of Q1)" in s
-          and "numbered nodes (1, 2, 3, 4)" in s and "Q1 is in saturation" in s
-          and "swapped terminals" in s
-          and "R1: node vcc (+ of VCC) – node b (base of Q1)" in good
-          and "node x (floating" in good and "numbered" not in good
-          and "saturation" not in good,
-          "simulate describes the connections and warns about numbered nodes and saturation")
-    n7 = ("VCC vcc 0 DC 12\nR1 vcc b 4.7k\nR2 b 0 7.5k\nRC vcc c 240\nRE e 0 6.8k\n"
-          f"Q1 c b e Q2N3904\n{C.MODEL_2N3904}\n.op")
-    m = [hs.quantities_of(hs.simulate_data(n)) for n in (n7, n7.replace("BF=416.4", "BF=100"))]
-    der = {"ic_change_pct": "ic"}
-    ok_if(not without_origin({"ic_change_pct": -1.01}, {}, [], der, m)
-          and without_origin({"ic_change_pct": 7.8}, {}, [], der, m)
-          and without_origin({"ic_change_pct": -1.01}, {}, [], der, m[:1]),
-          "origin check: the Ic change must come from two of its own simulations")
-    # Real case: both circuits (nominal BF and BF = 100) in one netlist. Done wrong: sources in
-    # parallel and two .model with the same name. Done right: separate nodes and models
-    q100 = C.MODEL_2N3904.replace("Q2N3904", "QB").replace("BF=416.4", "BF=100")
-    bad = (n7.replace("\n.op", "") + "\nVCC2 vcc 0 DC 12\nR1B vcc b2 4.7k\nR2B b2 0 7.5k\n"
-           "RC2 vcc c2 240\nRE2 e2 0 6.8k\nQ2 c2 b2 e2 Q2N3904\n"
-           + C.MODEL_2N3904.replace("BF=416.4", "BF=100") + "\n.op")
-    good = (n7.replace("\n.op", "") + "\nVCC2 vcc2 0 DC 12\nR1B vcc2 b2 4.7k\nR2B b2 0 7.5k\n"
-            f"RC2 vcc2 c2 240\nRE2 e2 0 6.8k\nQ2 c2 b2 e2 QB\n{q100}\n.op")
-    s = hs.simulate(bad)
-    m2 = [hs.quantities_of(hs.simulate_data(good))]
-    ok_if("Q1: no solution" in s and "VCC and VCC2 are voltage sources in parallel" in s
-          and "There are 2 .model statements named q2n3904" in s and "active region" not in s
-          and not without_origin({"ic_change_pct": -1.0}, {}, [], der, m2),
-          "simulate warns about parallel sources and repeated models, and does not accept a "
-          "solution with nan; the change is valid between two transistors of the same netlist")
-    ok_if(not fits_another(40 * 60, 13 * 60, 45 * 60) and fits_another(30 * 60, 13 * 60, 45 * 60)
-          and duration("1h30") == 5400 and duration("45") == 2700 and duration("30s") == 30,
-          "time-limited batches: does not start an iteration that does not fit; durations")
-
-    print(c("Challenge verifiers", BOLD))
-    for cid, ch in C.CHALLENGES.items():
-        if ch.verify is None:
-            continue
-        good = ch.verify(C.CORRECT_REFERENCES[cid])
-        wrong = ch.verify(C.WRONG_REFERENCES[cid])
-        ok_if(all(ok for ok, _ in good) and not all(ok for ok, _ in wrong),
-              f"challenge {cid}: accepts the correct solution and rejects the wrong one")
-        if not all(ok for ok, _ in good):
-            for ok, t in good:
-                print(("       ✅ " if ok else "       ❌ ") + t)
-    print(c("\nSelf-test passed." if not failures else f"\n{failures} failure(s).",
-            GREEN if not failures else RED))
-    return failures
-
-
-def list_challenges() -> None:
-    print(c("Available challenges (python3 -m vibespice --challenge N):", BOLD))
-    for cid, ch in C.CHALLENGES.items():
-        print(f"  {cid}  {ch.title}  " + c(f"[{', '.join(ch.tags)}]", GREY))
-    print(c("\nSolutions are in vibespice/challenges.py and in the README (the model never "
-            "sees them).", GREY))
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-MENU = [
-    ("Check the connection and the tools", ["--check"]),
-    ("Show the list of challenges", ["--list"]),
-    ("Run a challenge once", ["--challenge", "{challenge}"]),
-    ("Measure reliability: repetitions with a time limit",
-     ["--challenge", "{challenge}", "--repeat", "{times}", "--time-limit", "{time}"]),
-    ("Analyze the saved runs", None),
-    ("Local test without AI (self-test)", ["--selftest"]),
-]
-
-
-def menu(ask=input) -> list[str] | None:
-    """No arguments and in a terminal: guided menu that shows the command it will run."""
-    print(c("vibespice — what do you want to do?", BOLD))
-    for i, (text, _) in enumerate(MENU, 1):
-        print(f"  {i}. {text}")
-    print(c("  0. Quit   (all options: python3 -m vibespice -h)", GREY))
-    try:
-        choice = ask("Option: ").strip()
-        if not choice.isdigit() or not 1 <= int(choice) <= len(MENU):
-            return None
-        text, template = MENU[int(choice) - 1]
-        if template is None:
-            analyze.main([])
-            return None
-        values = {}
-        if "{challenge}" in template:
-            for cid, ch in C.CHALLENGES.items():
-                print(c(f"     {cid}  {ch.title}", GREY))
-            values["challenge"] = ask("Challenge [6]: ").strip() or "6"
-        if "{times}" in template:
-            values["times"] = ask("How many repetitions at most? [5]: ").strip() or "5"
-        if "{time}" in template:
-            values["time"] = ask("For how long? (e.g. 45m, 1h30) [45m]: ").strip() or "45m"
-            duration(values["time"])
-        argv = [a.format(**values) for a in template]
-        print(c("About to run:  python3 -m vibespice " + " ".join(argv), BLUE))
-        print(c("(next time you can type it directly)", GREY))
-        if ask("Go ahead? [Y/n]: ").strip().lower() in ("n", "no"):
-            return None
-        return argv
-    except (EOFError, KeyboardInterrupt, argparse.ArgumentTypeError) as e:
-        if isinstance(e, argparse.ArgumentTypeError):
-            print(c(str(e), RED))
-        return None
-
-
-def main(argv: list[str] | None = None) -> int:
-    if argv is None and len(sys.argv) == 1 and sys.stdin.isatty() and sys.stdout.isatty():
-        argv = menu()
-        if argv is None:
-            return 0
-    p = argparse.ArgumentParser(prog="vibespice",
-                                description="LLM + ngspice agent through Open WebUI")
-    p.add_argument("--version", action="version", version=f"vibespice {__version__}")
-    g = p.add_mutually_exclusive_group()
-    g.add_argument("--check", action="store_true", help="checks ngspice, the connection and the model")
-    g.add_argument("--status", action="store_true", help="shows which models Ollama has loaded")
-    g.add_argument("--selftest", action="store_true", help="local test without AI")
-    g.add_argument("--list", action="store_true", help="lists the challenges")
-    g.add_argument("--challenge", help="challenge id (see --list) or 'all'")
-    g.add_argument("--task", help="free task as text")
-    g.add_argument("--task-file", help="free task read from a file")
-    p.add_argument("--repeat", type=int, default=1, help="repeats N times (measures reliability)")
-    p.add_argument("--think", default="yes",
-                   help="reasoning: yes, no or a level the model supports (qwen3.8: low, "
-                        "medium, xhigh; with 'yes', the model's default level)")
-    p.add_argument("--mode", choices=["native", "text"], default="native",
-                   help="native = the API's tool_calls; text = <tool_call> inside the text")
-    p.add_argument("--max-steps", type=int, default=20, help="cap on model replies")
-    p.add_argument("--num-ctx", default="auto",
-                   help="'auto' = the one the server already has loaded (avoids reloads); or a "
-                        "number")
-    p.add_argument("--model", help="model id in Open WebUI (default: OWUI_MODEL)")
-    p.add_argument("--show-thinking", action="store_true", help="shows the reasoning")
-    p.add_argument("--time-limit", type=duration, metavar="T",
-                   help="maximum batch time, e.g. 2h, 90m or 1h30; does not start an iteration "
-                        "that cannot finish in time")
-    args = p.parse_args(argv)
-
-    if args.list:
-        list_challenges()
-        return 0
-    if args.selftest:
-        return 1 if selftest() else 0
-
-    try:
-        client = OWUIClient(CONF["OWUI_URL"], CONF["OWUI_API_KEY"],
-                            args.model or CONF["OWUI_MODEL"], CONF["OWUI_CA"],
-                            float(CONF["LLM_TIMEOUT"]))
-    except APIError as e:
-        if args.check:
-            check(None)
-        print(c(str(e), RED))
-        return 2
-
-    if args.check:
-        return 1 if check(client) else 0
-    if args.status:
-        try:
-            for m in client.ollama_ps() or [{"name": "(no model loaded)"}]:
-                print(f"{m.get('name')} · context {m.get('context_length', '-')} · "
-                      f"VRAM {(m.get('size_vram') or 0) / 1e9:.1f} GB · expires "
-                      f"{str(m.get('expires_at', '-'))[:19]}")
-        except APIError as e:
-            print(c(str(e), RED))
-            return 2
-        return 0
-
-    if args.challenge:
-        ids = list(C.CHALLENGES) if args.challenge == "all" else [args.challenge]
-        for i in ids:
-            if i not in C.CHALLENGES:
-                print(c(f"No challenge '{i}'. Use --list.", RED))
-                return 2
-        jobs = [(C.CHALLENGES[i].message(), C.CHALLENGES[i], f"challenge{i}") for i in ids]
-    elif args.task or args.task_file:
-        text = args.task or Path(args.task_file).read_text(encoding="utf-8")
-        jobs = [(text, None, "free")]
-    else:
-        p.print_help()
-        return 0
-
-    args.think, error = resolve_think(client, args.think)
-    if error:
-        print(c(error, RED))
-        return 2
-    args.batch_kind = ("free" if not args.challenge else "all" if args.challenge == "all"
-                       else "repeat" if args.repeat > 1 else "single")
-    if args.num_ctx == "auto":
-        num_ctx = loaded_context(client)
-    else:
-        num_ctx = int(args.num_ctx)
-        print(c(f"⚠ You are requesting num_ctx={num_ctx}. If other users of the server use a "
-                "different value, Ollama will reload the model every time your requests "
-                "alternate.", YELLOW))
-
-    model = args.model or CONF["OWUI_MODEL"]
-    awake = keep_awake()
-    if awake:
-        print(c(f"☕ {awake}", GREY))
-    if args.challenge:
-        estimate_before([ch.id for _, ch, _ in jobs], args.repeat, model, args.think,
-                        args.time_limit)
-
-    results = []
-    total, t0, limit, stopped = len(jobs) * args.repeat, time.time(), args.time_limit, ""
-    if limit:
-        limit_notice(limit, "another run")
-    try:
-        for task, challenge, label in jobs:
-            for n in range(1, args.repeat + 1):
-                done, elapsed = len(results), time.time() - t0
-                if limit and done and not fits_another(elapsed, elapsed / done, limit):
-                    stopped = (f"after {done} of {total} runs (limit of {limit / 60:.0f} min, "
-                               f"average {elapsed / done / 60:.1f} min)")
-                    break
-                r = run_once(client, task, challenge, args, label, num_ctx,
-                             n if args.repeat > 1 else None)
-                results.append((label, n, r))
-                if total > 1:
-                    print(c(estimate(len(results), total, t0, limit, "runs"), GREY))
-            if stopped:
-                break
-    except KeyboardInterrupt:
-        pass
-    if stopped:
-        print(c(f"\n⏱ Stopped by time {stopped}.", YELLOW))
-
-    if len(results) > 1:
-        print(c("\n═══ Summary ═══", BOLD))
-        per_job: dict[str, list] = {}
-        for label, n, r in results:
-            per_job.setdefault(label, []).append(r)
-        for label, items in per_job.items():
-            passed = sum(1 for r in items if r["state"] == "PASS")
-            times = [r["st"]["seconds"] for r in items if r["st"]]
-            avg = sum(times) / len(times) if times else 0
-            print(f"  {label}: {passed}/{len(items)} PASS · average time {fmt_dur(avg)} · "
-                  + " ".join(("✅" if r["state"] == "PASS" else "❌") for r in items))
-        print(c("Full history in logs/summary.csv", GREY))
-    if len(results) > 1 or time.time() - t0 > 120:
-        passed = sum(1 for _, _, r in results if r["state"] == "PASS")
-        notify_done("vibespice: batch finished",
-                    f"{passed}/{len(results)} PASS in {fmt_dur(time.time() - t0)}"
-                    + (f" · stopped by time {stopped}" if stopped else ""))
-    return 0
 

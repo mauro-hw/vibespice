@@ -37,7 +37,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends ngspice
           ngspice --version | head -n 2
       - name: Self-test
-        run: python -m vibespice --selftest
+        run: python -m vibespice selftest
       - name: End-to-end tests
         run: python tests/run_tests.py
       - name: Install the package and run the installed command
@@ -45,4 +45,4 @@ jobs:
           python -m pip install .
           cd "$RUNNER_TEMP"
           vibespice --version
-          vibespice --selftest
+          vibespice selftest

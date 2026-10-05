@@ -5,17 +5,24 @@ on this repository.
 
 ## What this is
 
-vibespice measures how well a language model designs analog circuits. `vibespice/agent.py`
-talks to the model through the Open WebUI API and runs ngspice locally, in a loop, until
-the model gives a final answer; that answer is then verified independently by
-re-simulating it.
+vibespice is an agent that designs and simulates analog circuits from a prompt
+(`vibespice run`). It talks to a language model through the Open WebUI API and runs ngspice
+locally, in a loop, until the model gives a final answer. It also has a benchmark
+(`vibespice bench`): challenges whose answers are verified independently by re-simulating
+them.
 
 ## Layout
 
 Everything lives in the `vibespice/` package (`python3 -m vibespice`, or the `vibespice`
 command once installed):
 
-- `vibespice/agent.py`: CLI, Open WebUI client, agent loop, logs, verification and self-test.
+- `vibespice/cli.py`: the commands (`run`, `bench`, `check`, `status`, `selftest`,
+  `analyze`) and the guided menu. Nothing else parses arguments.
+- `vibespice/agent.py`: configuration, Open WebUI client, agent loop, logs and verification
+  of one run.
+- `vibespice/batch.py`: running jobs one after another, time limits and estimates.
+- `vibespice/checks.py`: `check` (connection) and `selftest` (tools and verifiers, no AI).
+- `vibespice/console.py`: terminal output, notification and keeping the computer awake.
 - `vibespice/tools.py`: tools offered to the model (`simulate`, `analyze_tolerances`,
   `standard_values`, `calculate`) and their schemas.
 - `vibespice/challenges.py`: challenges, verifiers and reference answers (correct and wrong).
@@ -54,7 +61,7 @@ Both must pass. Check their exit code (0), not just the text: a `grep` over the 
 succeeds even if there are lines with ❌.
 
 ```bash
-python3 -m vibespice --selftest
+python3 -m vibespice selftest
 python3 tests/run_tests.py
 ```
 

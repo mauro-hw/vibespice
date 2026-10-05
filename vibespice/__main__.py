@@ -3,6 +3,6 @@
 """python3 -m vibespice"""
 import sys
 
-from .agent import main
+from .cli import main
 
 sys.exit(main())
