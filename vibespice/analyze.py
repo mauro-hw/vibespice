@@ -1,15 +1,14 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Mauro Rodriguez Blasco
 """
 Statistics of the runs saved in logs/ (standard library only).
 
-    python3 analyze_logs.py                       # everything in logs/
-    python3 analyze_logs.py --challenge 6         # a single challenge
-    python3 analyze_logs.py --last 12             # the 12 most recent runs
-    python3 analyze_logs.py --since 20260929 --md report.md
-    python3 analyze_logs.py --folder logs/before-change
-    python3 analyze_logs.py --challenge 7 --by-version   # before / after a change
+    python3 -m vibespice.analyze                       # everything in logs/
+    python3 -m vibespice.analyze --challenge 6         # a single challenge
+    python3 -m vibespice.analyze --last 12             # the 12 most recent runs
+    python3 -m vibespice.analyze --since 20260929 --md report.md
+    python3 -m vibespice.analyze --folder logs/before-change
+    python3 -m vibespice.analyze --challenge 7 --by-version   # before / after a change
 
 Groups by challenge, model, reasoning and batch kind, and counts what helps to learn how
 the model works: pass rate, time, tool use, measurements that work, unmeasured results,
@@ -26,9 +25,9 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-import spice_tools as hs
+from . import tools as hs
 
-DIR = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 RE_BAD_REGION = re.compile(r"\((saturation|cutoff) region\)")
 
 
@@ -168,16 +167,17 @@ def report(runs: list[dict], by_version: bool = False) -> list[str]:
     return lines
 
 
-def main() -> int:
-    p = argparse.ArgumentParser(description="Statistics of vibespice's logs/")
-    p.add_argument("--folder", default=str(DIR / "logs"), help="folder with the .json files")
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="python3 -m vibespice.analyze",
+                                description="Statistics of vibespice's logs/")
+    p.add_argument("--folder", default=str(ROOT / "logs"), help="folder with the .json files")
     p.add_argument("--challenge", help="only this challenge")
     p.add_argument("--since", help="only from this date on (YYYYMMDD)")
     p.add_argument("--last", type=int, help="only the N most recent runs")
     p.add_argument("--md", help="also save the report to this Markdown file")
     p.add_argument("--by-version", action="store_true",
                    help="also split by code version (compare before and after a change)")
-    args = p.parse_args()
+    args = p.parse_args(argv)
     folder = Path(args.folder)
     if not folder.is_dir():
         print(f"Folder {folder} does not exist")

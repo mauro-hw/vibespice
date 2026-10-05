@@ -9,7 +9,7 @@ until the model gives its final answer. Then the script **checks that answer on 
 by simulating again, and logs everything.
 
 ```
- LLM (server)  ⇄  Open WebUI (API)  ⇄  spice_agent.py (your computer)  ⇄  ngspice
+ LLM (server)  ⇄  Open WebUI (API)  ⇄  vibespice (your computer)  ⇄  ngspice
 ```
 
 It uses only the Python standard library, so there is nothing else to install. It is tested
@@ -17,11 +17,12 @@ with Python 3.11 to 3.14 and ngspice 42 and 47, on Linux.
 
 | File | What it is for |
 |---|---|
-| `spice_agent.py` | The agent: connection, loop, logs and verification |
-| `spice_tools.py` | What the model can use: `simulate`, `analyze_tolerances`, `standard_values`, `calculate` |
-| `challenges.py` | The challenges, how they are verified and their solutions (the model never sees them) |
+| `vibespice/agent.py` | The agent: connection, loop, logs and verification |
+| `vibespice/tools.py` | What the model can use: `simulate`, `analyze_tolerances`, `standard_values`, `calculate` |
+| `vibespice/challenges.py` | The challenges, how they are verified and their solutions (the model never sees them) |
+| `vibespice/analyze.py` | Statistics of `logs/`: pass rate, times, tools, measurements, unmeasured results and signs that it simulates another circuit, per challenge and configuration |
 | `agent.conf.example` | Configuration template (your `agent.conf` is never committed) |
-| `analyze_logs.py` | Statistics of `logs/`: pass rate, times, tools, measurements, unmeasured results and signs that it simulates another circuit, per challenge and configuration |
+| `pyproject.toml` | Package metadata, so it can be installed with pip or pipx |
 | `tests/` | Tests without a server: a fake Open WebUI with a scripted "model" |
 | `AGENTS.md` | Project rules for contributors and coding agents |
 | `CHANGELOG.md` | What changed in each version |
@@ -67,17 +68,17 @@ priority over the file.
 **e) Local test, without AI.** Checks your ngspice and the verifiers:
 
 ```bash
-python3 spice_agent.py --selftest
+python3 -m vibespice --selftest
 ```
 
-**Can't remember the commands?** Run `python3 spice_agent.py` with nothing else: a guided menu
+**Can't remember the commands?** Run `python3 -m vibespice` with nothing else: a guided menu
 asks what it needs and shows you the exact command before running it.
 
 **f) Connection test.** Checks ngspice, the key, the model, the loaded context, a chat and a
 tool call:
 
 ```bash
-python3 spice_agent.py --check
+python3 -m vibespice --check
 ```
 
 If step 5 says that native mode works, you are ready. If not, use `--mode text` (see
@@ -86,7 +87,7 @@ section 5).
 **g) First challenge:**
 
 ```bash
-python3 spice_agent.py --challenge 0
+python3 -m vibespice --challenge 0
 ```
 
 ---
@@ -94,9 +95,9 @@ python3 spice_agent.py --challenge 0
 ## 2. The challenges
 
 ```bash
-python3 spice_agent.py --list
-python3 spice_agent.py --challenge 2             # one
-python3 spice_agent.py --challenge all           # all in a row
+python3 -m vibespice --list
+python3 -m vibespice --challenge 2             # one
+python3 -m vibespice --challenge all           # all in a row
 ```
 
 | Challenge | What it measures | Reference solution (for you) |
@@ -133,18 +134,18 @@ pass rates:
 
 ```bash
 # 1. One run, reading calmly (shows its reasoning)
-python3 spice_agent.py --challenge 1 --show-thinking
+python3 -m vibespice --challenge 1 --show-thinking
 
 # 2. Reliability: 5 repetitions of each challenge, with and without reasoning
-python3 spice_agent.py --challenge all --repeat 5 --think yes
-python3 spice_agent.py --challenge all --repeat 5 --think no
+python3 -m vibespice --challenge all --repeat 5 --think yes
+python3 -m vibespice --challenge all --repeat 5 --think no
 
 # 3. If it fails with the tools, compare with text mode
-python3 spice_agent.py --challenge 3 --repeat 5 --mode text
+python3 -m vibespice --challenge 3 --repeat 5 --mode text
 
 # 4. Free tasks (no automatic verification)
-python3 spice_agent.py --task "Design a 24 V to 3.3 V divider with the E12 series and give me the worst case with 5 % resistors"
-python3 spice_agent.py --task-file my_task.txt
+python3 -m vibespice --task "Design a 24 V to 3.3 V divider with the E12 series and give me the worst case with 5 % resistors"
+python3 -m vibespice --task-file my_task.txt
 ```
 
 Everything goes to `logs/`:
@@ -166,11 +167,11 @@ Everything goes to `logs/`:
 - **Context warnings.** If "possible context truncation" shows up, the conversation does not
   fit in the server's `num_ctx`.
 
-`python3 analyze_logs.py` summarizes everything saved (with `--challenge`, `--since YYYYMMDD`,
+`python3 -m vibespice.analyze` summarizes everything saved (with `--challenge`, `--since YYYYMMDD`,
 `--last N` or `--md report.md`). To compare before and after a code change, add
 `--by-version`.
 
-**Writing your own challenges.** In `challenges.py`, copy a `Challenge(...)`, change the
+**Writing your own challenges.** In `vibespice/challenges.py`, copy a `Challenge(...)`, change the
 statement and the JSON format, and write its verification function (or `None` if you don't
 want one). The helpers `divider_vout()` and `divider_worst_case()` are good examples.
 

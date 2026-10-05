@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-import spice_tools as hs
+from . import tools as hs
 
 Result = list[tuple[bool, str]]   # [(correct, explanation), ...]
 

@@ -1,20 +1,19 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Mauro Rodriguez Blasco
 """
 Iterative LLM + ngspice agent, through Open WebUI.
 
-The model (on your server) thinks and decides; this script, on your computer, runs
+The model (on your server) thinks and decides; this program, on your computer, runs
 ngspice and sends the results back, in a loop, until it gives a final answer. That
 answer is then verified independently (by re-simulating) and everything is logged.
 
 Quick use:
-    python3 spice_agent.py --check            # connection, ngspice, model, tools
-    python3 spice_agent.py --selftest         # local test without AI
-    python3 spice_agent.py --list             # available challenges
-    python3 spice_agent.py --challenge 2      # run a challenge
-    python3 spice_agent.py --challenge 2 --repeat 5 --think no
-    python3 spice_agent.py --task "Design a 24 V to 3.3 V divider with E12"
+    python3 -m vibespice --check            # connection, ngspice, model, tools
+    python3 -m vibespice --selftest         # local test without AI
+    python3 -m vibespice --list             # available challenges
+    python3 -m vibespice --challenge 2      # run a challenge
+    python3 -m vibespice --challenge 2 --repeat 5 --think no
+    python3 -m vibespice --task "Design a 24 V to 3.3 V divider with E12"
 
 Standard library only (tested with Python 3.11 to 3.14).
 """
@@ -38,10 +37,10 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-__version__ = "0.1.0.dev0"
+from . import __version__
 
-DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(DIR))
+DIR = Path(__file__).resolve().parent     # the package (for the git commit of the code)
+ROOT = DIR.parent                         # the clone: agent.conf and logs/
 
 # ---------------------------------------------------------------------------
 # Configuration: agent.conf (KEY=value) and environment variables (which take priority)
@@ -56,7 +55,7 @@ DEFAULT_CONF = {
 }
 
 
-CONF_FILE = DIR / "agent.conf"
+CONF_FILE = ROOT / "agent.conf"
 _RE_CONF = re.compile(r"^(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*[=:]\s*(.*)$")
 
 
@@ -82,7 +81,7 @@ def config_diagnosis(conf: dict) -> str:
     """Explains why the configuration is missing."""
     lines = [f"Looking for the configuration in: {CONF_FILE}"]
     if not CONF_FILE.exists():
-        others = sorted(p.name for p in DIR.glob("agent*"))
+        others = sorted(p.name for p in ROOT.glob("agent*"))
         lines.append("  ❌ That file does NOT exist. Create it with:  cp agent.conf.example "
                      "agent.conf  and fill in OWUI_URL and OWUI_API_KEY")
         if others:
@@ -105,8 +104,9 @@ def config_diagnosis(conf: dict) -> str:
 CONF = load_config()
 os.environ["NGSPICE"] = CONF["NGSPICE"]   # before importing the tools
 
-import spice_tools as hs   # noqa: E402
-import challenges as C     # noqa: E402
+from . import tools as hs        # noqa: E402
+from . import challenges as C    # noqa: E402
+from . import analyze            # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Console
@@ -404,7 +404,7 @@ def call_summary(name: str, args) -> str:
 # ---------------------------------------------------------------------------
 class RunLog:
     def __init__(self, label: str):
-        folder = DIR / "logs"
+        folder = ROOT / "logs"
         folder.mkdir(exist_ok=True)
         base = f"{datetime.now():%Y%m%d-%H%M%S}_{re.sub(r'[^A-Za-z0-9_-]+', '_', label)}"
         name, n = base, 1
@@ -823,7 +823,7 @@ def code_version() -> str:
 
 
 def append_csv(row: dict) -> None:
-    path = DIR / "logs" / "summary.csv"
+    path = ROOT / "logs" / "summary.csv"
     if path.exists():       # different columns: keep the old file aside and start another
         with path.open(encoding="utf-8", newline="") as f:
             header = next(csv.reader(f), [])
@@ -901,7 +901,7 @@ def run_once(client, task, challenge, args, label, num_ctx, n_rep=None) -> dict:
     finally:
         log.data.update(result=final_state, summary=st)
         log.save_json()
-        print(c(f"Log: {log.md.relative_to(DIR)}", GREY))
+        print(c(f"Log: {log.md.relative_to(ROOT)}", GREY))
         append_csv({
             "date": f"{datetime.now():%Y-%m-%d %H:%M:%S}",
             "challenge": challenge.id if challenge else "free",
@@ -955,7 +955,7 @@ def limit_notice(limit: float, what: str) -> None:
 def history_seconds(challenge_id: str, model: str, think: str) -> list[float]:
     """Durations of similar earlier runs, taken from logs/summary*.csv."""
     out = []
-    for path in sorted((DIR / "logs").glob("summary*.csv")):
+    for path in sorted((ROOT / "logs").glob("summary*.csv")):
         try:
             with path.open(encoding="utf-8", newline="") as f:
                 for row in csv.DictReader(f):
@@ -1240,11 +1240,11 @@ def selftest() -> int:
 
 
 def list_challenges() -> None:
-    print(c("Available challenges (python3 spice_agent.py --challenge N):", BOLD))
+    print(c("Available challenges (python3 -m vibespice --challenge N):", BOLD))
     for cid, ch in C.CHALLENGES.items():
         print(f"  {cid}  {ch.title}  " + c(f"[{', '.join(ch.tags)}]", GREY))
-    print(c("\nSolutions are in challenges.py and in the README (the model never sees them).",
-            GREY))
+    print(c("\nSolutions are in vibespice/challenges.py and in the README (the model never "
+            "sees them).", GREY))
 
 
 # ---------------------------------------------------------------------------
@@ -1266,14 +1266,14 @@ def menu(ask=input) -> list[str] | None:
     print(c("vibespice — what do you want to do?", BOLD))
     for i, (text, _) in enumerate(MENU, 1):
         print(f"  {i}. {text}")
-    print(c("  0. Quit   (all options: python3 spice_agent.py -h)", GREY))
+    print(c("  0. Quit   (all options: python3 -m vibespice -h)", GREY))
     try:
         choice = ask("Option: ").strip()
         if not choice.isdigit() or not 1 <= int(choice) <= len(MENU):
             return None
         text, template = MENU[int(choice) - 1]
         if template is None:
-            subprocess.run([sys.executable, str(DIR / "analyze_logs.py")])
+            analyze.main([])
             return None
         values = {}
         if "{challenge}" in template:
@@ -1286,7 +1286,7 @@ def menu(ask=input) -> list[str] | None:
             values["time"] = ask("For how long? (e.g. 45m, 1h30) [45m]: ").strip() or "45m"
             duration(values["time"])
         argv = [a.format(**values) for a in template]
-        print(c("About to run:  python3 spice_agent.py " + " ".join(argv), BLUE))
+        print(c("About to run:  python3 -m vibespice " + " ".join(argv), BLUE))
         print(c("(next time you can type it directly)", GREY))
         if ask("Go ahead? [Y/n]: ").strip().lower() in ("n", "no"):
             return None
@@ -1302,7 +1302,8 @@ def main(argv: list[str] | None = None) -> int:
         argv = menu()
         if argv is None:
             return 0
-    p = argparse.ArgumentParser(description="LLM + ngspice agent through Open WebUI")
+    p = argparse.ArgumentParser(prog="vibespice",
+                                description="LLM + ngspice agent through Open WebUI")
     p.add_argument("--version", action="version", version=f"vibespice {__version__}")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--check", action="store_true", help="checks ngspice, the connection and the model")
@@ -1437,6 +1438,3 @@ def main(argv: list[str] | None = None) -> int:
                     + (f" · stopped by time {stopped}" if stopped else ""))
     return 0
 
-
-if __name__ == "__main__":
-    sys.exit(main())

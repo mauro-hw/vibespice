@@ -5,17 +5,22 @@ on this repository.
 
 ## What this is
 
-vibespice measures how well a language model designs analog circuits. `spice_agent.py` talks
-to the model through the Open WebUI API and runs ngspice locally, in a loop, until the model
-gives a final answer; that answer is then verified independently by re-simulating it.
+vibespice measures how well a language model designs analog circuits. `vibespice/agent.py`
+talks to the model through the Open WebUI API and runs ngspice locally, in a loop, until
+the model gives a final answer; that answer is then verified independently by
+re-simulating it.
 
 ## Layout
 
-- `spice_agent.py`: CLI, Open WebUI client, agent loop, logs, verification and self-test.
-- `spice_tools.py`: tools offered to the model (`simulate`, `analyze_tolerances`,
+Everything lives in the `vibespice/` package (`python3 -m vibespice`, or the `vibespice`
+command once installed):
+
+- `vibespice/agent.py`: CLI, Open WebUI client, agent loop, logs, verification and self-test.
+- `vibespice/tools.py`: tools offered to the model (`simulate`, `analyze_tolerances`,
   `standard_values`, `calculate`) and their schemas.
-- `challenges.py`: challenges, verifiers and reference answers (correct and wrong).
-- `analyze_logs.py`: statistics of `logs/` (read-only; the tests use it too).
+- `vibespice/challenges.py`: challenges, verifiers and reference answers (correct and wrong).
+- `vibespice/analyze.py`: statistics of `logs/` (read-only; the tests use it too).
+- `pyproject.toml`: package metadata. No runtime dependencies.
 - `tests/`: fake Open WebUI with a scripted "model" and end-to-end tests.
 - `CHANGELOG.md`: what changed in each version.
 
@@ -49,7 +54,7 @@ Both must pass. Check their exit code (0), not just the text: a `grep` over the 
 succeeds even if there are lines with ❌.
 
 ```bash
-python3 spice_agent.py --selftest
+python3 -m vibespice --selftest
 python3 tests/run_tests.py
 ```
 
@@ -62,7 +67,7 @@ the relevant logs or output when it matters.
 ## Versions and changelog
 
 - The project follows [Semantic Versioning](https://semver.org/). The version lives in
-  `__version__` in `spice_agent.py` and is written to every log next to the git commit.
+  `__version__` in `vibespice/__init__.py` and is written to every log next to the git commit.
 - `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/). Every change that
   a user would notice gets a line under `## [Unreleased]` **in the same commit**.
 - To release: set `__version__` (for example `0.1.0`), rename `## [Unreleased]` to

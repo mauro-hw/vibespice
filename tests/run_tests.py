@@ -66,14 +66,14 @@ CASES = [
 
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="vibespice_tests_"))
-    for f in ("spice_agent.py", "spice_tools.py", "challenges.py", "analyze_logs.py"):
-        shutil.copy(ROOT / f, tmp / f)
+    shutil.copytree(ROOT / "vibespice", tmp / "vibespice",
+                    ignore=shutil.ignore_patterns("__pycache__"))
     env = dict(os.environ, NO_COLOR="1", VIBESPICE_NO_NOTIFY="1",
                OWUI_API_KEY=fs.KEY, OWUI_MODEL=fs.MODEL,
                NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost")
     failures = 0
 
-    r = subprocess.run([sys.executable, "spice_agent.py", "--selftest"], cwd=tmp,
+    r = subprocess.run([sys.executable, "-m", "vibespice", "--selftest"], cwd=tmp,
                        env=env, capture_output=True, text=True, timeout=300)
     ok = r.returncode == 0 and "Self-test passed" in r.stdout
     print(("✅" if ok else "❌") + " selftest")
@@ -81,7 +81,7 @@ def main() -> int:
         failures += 1
         print(r.stdout[-1500:], r.stderr[-800:])
 
-    r = subprocess.run([sys.executable, "spice_agent.py", "--version"], cwd=tmp,
+    r = subprocess.run([sys.executable, "-m", "vibespice", "--version"], cwd=tmp,
                        env=env, capture_output=True, text=True, timeout=60)
     ok = r.returncode == 0 and r.stdout.startswith("vibespice ")
     print(("✅" if ok else "❌") + " --version")
@@ -90,7 +90,7 @@ def main() -> int:
     for scenario, args, expected in CASES:
         srv, url = fs.start_in_background(scenario)
         try:
-            r = subprocess.run([sys.executable, "spice_agent.py", *args], cwd=tmp,
+            r = subprocess.run([sys.executable, "-m", "vibespice", *args], cwd=tmp,
                                env=dict(env, OWUI_URL=url), capture_output=True,
                                text=True, timeout=300)
         finally:
@@ -105,7 +105,7 @@ def main() -> int:
                   + "\n".join("   | " + l for l in output.splitlines()[-25:]))
 
     # The log analysis must understand what the tests left behind
-    r = subprocess.run([sys.executable, "analyze_logs.py", "--by-version"], cwd=tmp,
+    r = subprocess.run([sys.executable, "-m", "vibespice.analyze", "--by-version"], cwd=tmp,
                        env=env, capture_output=True, text=True, timeout=120)
     expected = ["runs", "Q sat/cutoff", "code", "Failing criteria", "simulate",
                 "Code versions: 0.1"]
