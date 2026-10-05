@@ -1,5 +1,6 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026 Mauro Rodriguez Blasco
+# Additional term under section 7(b) of the license: see NOTICE.
 """
 Tools the agent offers to the model: ngspice and a few helpers.
 

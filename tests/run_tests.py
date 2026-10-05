@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026 Mauro Rodriguez Blasco
+# Additional term under section 7(b) of the license: see NOTICE.
 """
 End-to-end tests without a real server.
 
@@ -162,7 +163,8 @@ def main() -> int:
     rc, out = vibespice(["selftest"], env, tmp)
     failures += report("selftest", rc == 0 and "Self-test passed" in out, out)
     rc, out = vibespice(["--version"], env, tmp, timeout=60)
-    failures += report("--version", rc == 0 and out.startswith("vibespice "), out)
+    failures += report("--version", rc == 0 and out.startswith("vibespice ")
+                       and "AGPL-3.0-only" in out and "NO WARRANTY" in out, out)
 
     for scenario, args, expected in CASES:
         srv, url = fs.start_in_background(scenario)
