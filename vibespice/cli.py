@@ -1,5 +1,6 @@
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026 Mauro Rodriguez Blasco
+# Additional term under section 7(b) of the license: see NOTICE.
 """
 Command line: vibespice <command>.
 
@@ -24,6 +25,15 @@ from pathlib import Path
 from . import __version__, agent, analyze, batch, checks, config
 from . import challenges as C
 from .console import BLUE, BOLD, GREEN, GREY, RED, c, tilde
+
+
+LEGAL = f"""vibespice {__version__}
+Copyright 2026 Mauro Rodriguez Blasco
+License AGPL-3.0-only: GNU Affero General Public License, version 3
+<https://www.gnu.org/licenses/agpl-3.0.html>, with an additional term on attribution
+(see NOTICE). This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Source code: https://github.com/mauro-hw/vibespice-app"""
 
 
 def prog_name() -> str:
@@ -82,6 +92,7 @@ MENU = [
 def menu(prog: str, ask=input) -> list[str] | None:
     """No arguments and in a terminal: guided menu that shows the command it will run."""
     print(c("vibespice — what do you want to do?", BOLD))
+    print(c(f"  {__version__} · AGPL-3.0-only · no warranty ({prog} --version)", GREY))
     for i, (text, _) in enumerate(MENU, 1):
         print(f"  {i}. {text}")
     print(c(f"  0. Quit   (all commands: {prog} -h)", GREY))
@@ -123,7 +134,8 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog=prog, description="Iterative SPICE simulation agent: a language model designs "
         "and simulates analog circuits with ngspice, on your computer.")
-    p.add_argument("--version", action="version", version=f"vibespice {__version__}")
+    p.add_argument("--version", action="store_true",
+                   help="show the version, the license and where the source code is")
     sub = p.add_subparsers(dest="command", metavar="command")
 
     server = argparse.ArgumentParser(add_help=False)
@@ -198,6 +210,9 @@ def main(argv: list[str] | None = None) -> int:
     p = build_parser(prog)
     args = p.parse_args(argv)
 
+    if args.version:
+        print(LEGAL)
+        return 0
     if args.command is None:
         p.print_help()
         return 0

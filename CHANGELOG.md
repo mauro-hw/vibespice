@@ -42,7 +42,9 @@ First public version, planned as 0.1.0.
   the git commit of the code (`+changes` when there were uncommitted changes).
 - `selftest` and `tests/run_tests.py` (end-to-end tests against a fake Open WebUI).
 - Guided menu when run without arguments in a terminal.
-- Apache-2.0 license with a `NOTICE` file and SPDX license headers in every source file.
+- AGPL-3.0-only license, with a `NOTICE` that must be kept (an additional term on
+  attribution, under section 7(b)) and SPDX headers in every source file. `--version`
+  shows the copyright, the license, that there is no warranty and where the source is.
 - Installable package (`pyproject.toml`, no runtime dependencies): `pipx install` or
   `pip install` gives the `vibespice` command; from a clone, `python3 -m vibespice`.
 

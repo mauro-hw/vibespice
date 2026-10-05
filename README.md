@@ -32,7 +32,7 @@ with Python 3.11 to 3.14 and ngspice 42 and 47, on Linux.
 | `tests/` | Tests without a server: a fake Open WebUI with a scripted "model" |
 | `AGENTS.md` | Project rules for contributors and coding agents |
 | `CHANGELOG.md` | What changed in each version |
-| `LICENSE`, `NOTICE` | License (Apache-2.0) and attribution notice |
+| `LICENSE`, `NOTICE` | License (AGPL-3.0-only) and attribution notice |
 
 ---
 
@@ -352,10 +352,15 @@ always be traced back to the exact code that produced them.
 
 ## License and authorship
 
-Copyright 2026 Mauro Rodriguez Blasco. Licensed under the Apache License 2.0: see
-[LICENSE](LICENSE) and [NOTICE](NOTICE).
+Copyright 2026 Mauro Rodriguez Blasco. vibespice is free software under the GNU Affero
+General Public License, version 3 only (AGPL-3.0-only): see [LICENSE](LICENSE) and
+[NOTICE](NOTICE).
 
-If you redistribute this code or a work based on it, the license asks you to include the
-license, keep the copyright and attribution notices, carry the contents of `NOTICE` and mark
-the files you changed (section 4). The license does not grant permission to use the
-project's name, except to describe where the code comes from (section 6).
+In short (the license is what counts):
+- You can use it for anything, study it, change it and share it.
+- If you share it, or a version you changed, you must share its source code under the same
+  license. That includes letting others use a changed version over a network, for example
+  as a web service (section 13).
+- Keep the copyright and the attribution in `NOTICE` (an additional term under section 7(b))
+  and mark the files you changed.
+- It comes with no warranty.

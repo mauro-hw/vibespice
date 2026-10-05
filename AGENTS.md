@@ -37,10 +37,14 @@ command once installed):
 - **Standard library only**, compatible with Python 3.11 to 3.14.
 - **License header on every code file**, right after the shebang if there is one:
   ```python
-  # SPDX-License-Identifier: Apache-2.0
+  # SPDX-License-Identifier: AGPL-3.0-only
   # Copyright 2026 Mauro Rodriguez Blasco
+  # Additional term under section 7(b) of the license: see NOTICE.
   ```
-  Keep `LICENSE` unchanged and keep the attribution in `NOTICE`.
+  The license is the GNU AGPL v3 only. Keep `LICENSE` unchanged (it is the official text
+  from gnu.org) and keep `NOTICE`, with its attribution term.
+- **Anything served over a network must link to its source code** (section 13 of the
+  AGPL). The planned web app shows that link, and `vibespice --version` prints it.
 - **English everywhere**: code, identifiers, comments, messages, prompts and docs.
 - **Nothing personal lives in the repository.** The configuration, with the API key, is
   `~/.config/vibespice/config.toml` and the logs go to `~/.local/share/vibespice/logs/`.
