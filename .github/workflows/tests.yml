@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Mauro Rodriguez Blasco
+#
+# Self-test and end-to-end tests against the fake Open WebUI. Runs against a real model
+# cannot happen here; contributors run them locally (see AGENTS.md).
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install ngspice
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ngspice
+          ngspice --version | head -n 2
+      - name: Self-test
+        run: python spice_agent.py --selftest
+      - name: End-to-end tests
+        run: python tests/run_tests.py

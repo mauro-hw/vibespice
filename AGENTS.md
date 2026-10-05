@@ -53,6 +53,9 @@ python3 spice_agent.py --selftest
 python3 tests/run_tests.py
 ```
 
+GitHub Actions runs both on every pull request and every push to `main`, with Python 3.11
+to 3.14 and the ngspice that Ubuntu 24.04 ships (`.github/workflows/tests.yml`).
+
 Runs against a real model cannot happen in CI; contributors run them locally and attach
 the relevant logs or output when it matters.
 
