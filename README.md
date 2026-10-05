@@ -26,8 +26,8 @@ with Python 3.11 to 3.14 and ngspice 42 and 47, on Linux.
 | `vibespice/tools.py` | What the model can use: `simulate`, `analyze_tolerances`, `standard_values`, `calculate` |
 | `vibespice/challenges.py` | The challenges, how they are verified and their solutions (the model never sees them) |
 | `vibespice/analyze.py` | Statistics of the saved runs: pass rate, times, tools, measurements, unmeasured results and signs that it simulates another circuit, per challenge and configuration |
+| `vibespice/config.py` | The configuration file, its profiles and where the logs go (section 6) |
 | `vibespice/batch.py`, `checks.py`, `console.py` | Batches and time limits; `check` and `selftest`; terminal output |
-| `agent.conf.example` | Configuration template (your `agent.conf` is never committed) |
 | `pyproject.toml` | Package metadata, so it can be installed with pip or pipx |
 | `tests/` | Tests without a server: a fake Open WebUI with a scripted "model" |
 | `AGENTS.md` | Project rules for contributors and coding agents |
@@ -42,6 +42,8 @@ with Python 3.11 to 3.14 and ngspice 42 and 47, on Linux.
 - Python 3.11 or newer.
 - ngspice: `sudo dnf install ngspice` (Fedora), `sudo apt install ngspice` (Debian, Ubuntu)
   or `brew install ngspice` (macOS).
+- pipx, to install vibespice as a command: `sudo dnf install pipx`, `sudo apt install pipx`
+  or `brew install pipx`.
 - An [Open WebUI](https://github.com/open-webui/open-webui) server with a model served by
   Ollama that supports tool calling. For now the agent talks to Open WebUI only.
 
@@ -58,33 +60,36 @@ starts with `sk-`.
 > `check`) and check the reasoning levels of each model. Without one, everything else still
 > works. The key acts on your behalf, so do not share it.
 
-**d) Download and configure.**
+**d) Install and configure.**
 
 ```bash
-git clone https://github.com/mauro-hw/vibespice-app
-cd vibespice-app
-cp agent.conf.example agent.conf
-chmod 600 agent.conf
-nano agent.conf           # fill in OWUI_URL and OWUI_API_KEY
+pipx install git+https://github.com/mauro-hw/vibespice-app
+vibespice init                             # creates ~/.config/vibespice/config.toml
+nano ~/.config/vibespice/config.toml       # fill in url, api_key and model
 ```
 
-Environment variables with the same names (`OWUI_URL`, `OWUI_API_KEY`, `OWUI_MODEL`…) take
-priority over the file.
+If you don't know the exact model id yet, leave `model` empty: step f lists the models on
+your server. To update vibespice later: `pipx upgrade vibespice`. Section 6 explains the
+file, its profiles and where the logs go.
+
+> **Without installing.** From a clone (`git clone https://github.com/mauro-hw/vibespice-app`
+> and `cd vibespice-app`), type `python3 -m vibespice` wherever this README says
+> `vibespice`.
 
 **e) Local test, without AI.** Checks your ngspice and the verifiers:
 
 ```bash
-python3 -m vibespice selftest
+vibespice selftest
 ```
 
-**Can't remember the commands?** Run `python3 -m vibespice` with nothing else: a guided menu
+**Can't remember the commands?** Run `vibespice` with nothing else: a guided menu
 asks what it needs and shows you the exact command before running it.
 
 **f) Connection test.** Checks ngspice, the key, the model, the loaded context, a chat and a
 tool call:
 
 ```bash
-python3 -m vibespice check
+vibespice check
 ```
 
 If step 5 says that native mode works, you are ready. If not, use `--mode text` (see
@@ -93,8 +98,8 @@ section 5).
 **g) First task and first challenge:**
 
 ```bash
-python3 -m vibespice run "Design a 12 V to 5 V divider with E24 resistors"
-python3 -m vibespice bench 0
+vibespice run "Design a 12 V to 5 V divider with E24 resistors"
+vibespice bench 0
 ```
 
 ---
@@ -102,9 +107,9 @@ python3 -m vibespice bench 0
 ## 2. Running a task
 
 ```bash
-python3 -m vibespice run "Design a 24 V to 3.3 V divider with the E12 series and give me the worst case with 5 % resistors"
-python3 -m vibespice run --file my_task.txt
-python3 -m vibespice run --file - < my_task.txt      # from standard input
+vibespice run "Design a 24 V to 3.3 V divider with the E12 series and give me the worst case with 5 % resistors"
+vibespice run --file my_task.txt
+vibespice run --file - < my_task.txt      # from standard input
 ```
 
 You see each step as it happens: how long the model took, which tool it asked for and the
@@ -116,7 +121,8 @@ limits on current or power, and what you want back (the design, the worst case, 
 The model only knows what you write. If the task cannot be met, a good model says so instead
 of forcing an answer.
 
-**Logs.** Every run, task or challenge, goes to `logs/`:
+**Logs.** Every run, task or challenge, goes to the logs folder,
+`~/.local/share/vibespice/logs/` (section 6):
 - **`YYYYMMDD-HHMMSS_free.md`** (or `…_challengeN.md`): the full conversation of **one** run
   (with `--repeat`, one per repetition: `…_rep1.md`, `…_rep2.md`…). It includes the
   reasoning, every netlist, every result and, in challenges, the verification. That is where
@@ -131,10 +137,10 @@ of forcing an answer.
 ## 3. The benchmark: challenges with verification
 
 ```bash
-python3 -m vibespice bench                 # lists them
-python3 -m vibespice bench 2               # one
-python3 -m vibespice bench 1 6 7           # several
-python3 -m vibespice bench all             # all in a row
+vibespice bench                 # lists them
+vibespice bench 2               # one
+vibespice bench 1 6 7           # several
+vibespice bench all             # all in a row
 ```
 
 | Challenge | What it measures | Reference solution (for you) |
@@ -169,14 +175,14 @@ pass rates:
 
 ```bash
 # 1. One run, reading calmly (shows its reasoning)
-python3 -m vibespice bench 1 --show-thinking
+vibespice bench 1 --show-thinking
 
 # 2. Reliability: 5 repetitions of each challenge, with and without reasoning
-python3 -m vibespice bench all --repeat 5 --think yes
-python3 -m vibespice bench all --repeat 5 --think no
+vibespice bench all --repeat 5 --think yes
+vibespice bench all --repeat 5 --think no
 
 # 3. If it fails with the tools, compare with text mode
-python3 -m vibespice bench 3 --repeat 5 --mode text
+vibespice bench 3 --repeat 5 --mode text
 ```
 
 **What to look at:**
@@ -188,7 +194,7 @@ python3 -m vibespice bench 3 --repeat 5 --mode text
 - **Context warnings.** If "possible context truncation" shows up, the conversation does not
   fit in the server's `num_ctx`.
 
-`python3 -m vibespice analyze` summarizes everything saved (with `--challenge`,
+`vibespice analyze` summarizes everything saved (with `--challenge`,
 `--since YYYYMMDD`, `--last N` or `--md report.md`). To compare before and after a code
 change, add `--by-version`.
 
@@ -235,9 +241,10 @@ the model can correct itself, which is exactly what we want to see.
 | `status` | Which model Ollama has loaded, with which context and how much VRAM it uses (admin key) |
 | `selftest` | Local test without AI: ngspice, the tools and the verifiers |
 | `analyze` | Statistics of the saved runs (section 3) |
+| `init` | Creates the configuration file; it never overwrites it (section 6) |
 | `--version` | Prints the version |
 
-Run `python3 -m vibespice <command> -h` for the options of each one.
+Run `vibespice <command> -h` for the options of each one.
 
 **Following a long batch.** Before it starts, it tells you how long each iteration usually
 takes according to your history and when it will finish. While the model thinks, a line
@@ -252,7 +259,8 @@ Options of `run` and `bench` (`--repeat` and `--time-limit` are only for `bench`
 | Option | Effect |
 |---|---|
 | `--think yes/no/level` | Turns reasoning on or off (on by default). Models with levels also accept the level: qwen3.8 accepts `low`, `medium` and `xhigh`, and with `yes` it uses its default level (`medium`). The agent checks on the server what each model supports. It uses the sampling parameters each family's vendor recommends (qwen3: 0.6 / 0.95 / 20 with reasoning and 0.7 / 0.8 / 20 without; qwen3.8: temperature 1.0 with reasoning and 0.7 with `presence_penalty` 1.5 without); for a family it does not know, those of its Modelfile |
-| `--model M` | Uses another Open WebUI model or preset (default: `OWUI_MODEL`). Before the first batch with a new model, run `check --model M`: it shows which reasoning levels it supports, whether it calls the tools correctly and with which context the server loads it |
+| `--profile NAME` | Uses another profile of the configuration file (section 6). Also for `check` and `status` |
+| `--model M` | Uses another Open WebUI model or preset (default: `model` in the profile). Before the first batch with a new model, run `check --model M`: it shows which reasoning levels it supports, whether it calls the tools correctly and with which context the server loads it |
 | `--mode native/text` | *native*: tool calls through the API (`tool_calls`). *text*: the model writes `<tool_call>{…}</tool_call>` in its reply. The agent understands both formats, and even a "native" call that slips through as text |
 | `--repeat N` | Repeats and summarizes the pass rate |
 | `--time-limit T` | Maximum batch time (`45m`, `2h`, `1h30`): does not start an iteration that cannot finish in time and tells you when it will end |
@@ -273,24 +281,67 @@ Options of `run` and `bench` (`--repeat` and `--time-limit` are only for `bench`
 
 ---
 
-## 6. Troubleshooting
+## 6. Configuration and where things are saved
+
+Nothing is saved in the code folder, so updating vibespice never touches your settings or
+your logs, and the key can never end up in a commit.
+
+| What | Where |
+|---|---|
+| Configuration, with your key | `~/.config/vibespice/config.toml` (`vibespice init` creates it, readable only by you) |
+| Logs: one `.md` and one `.json` per run, and `summary.csv` | `~/.local/share/vibespice/logs/` |
+
+The file has **one profile per server or API**, and `default_profile` says which one is used
+when you don't pass `--profile`:
+
+```toml
+default_profile = "office"
+
+[profiles.office]
+provider = "openwebui"
+url = "https://llm.example.com"
+api_key = "sk-…"
+model = "qwen3:32b"
+
+[profiles.home]
+provider = "openwebui"
+url = "http://localhost:3000"
+api_key = "sk-…"
+model = "qwen3:8b"
+```
+
+`vibespice run --profile home "…"` uses the second one. For now the only provider is
+`openwebui`. Each profile can also set `ca` (your CA certificate, for a server with its own
+HTTPS certificate) and `timeout` (seconds to wait for each reply, 900 by default). Outside
+the profiles, `logs_dir` moves the logs and `ngspice` sets the path of the executable.
+
+**Environment variables** take priority over the file: `VIBESPICE_PROFILE`,
+`VIBESPICE_URL`, `VIBESPICE_API_KEY`, `VIBESPICE_MODEL`, `VIBESPICE_CA`,
+`VIBESPICE_TIMEOUT`, `VIBESPICE_LOGS` and `VIBESPICE_NGSPICE`. `VIBESPICE_CONFIG` points to
+another configuration file. With `VIBESPICE_URL` and `VIBESPICE_API_KEY` you don't even need
+the file.
+
+---
+
+## 7. Troubleshooting
 
 | Symptom | Likely cause and fix |
 |---|---|
 | `HTTP 401` | Key copied wrong or regenerated (section 1c) |
 | `HTTP 403` | *Enable API Keys* off, *API Key Endpoint Restrictions* on, or a key without admin rights (section 1b) |
-| `HTTP 404` or "is not listed" | `OWUI_URL` is wrong, or `OWUI_MODEL` does not match the exact id (`check` lists the available ones) |
+| "Incomplete configuration" | It says what is missing and in which file. Without a file: `vibespice init` (section 1d) |
+| `HTTP 404` or "is not listed" | `url` is wrong, or `model` does not match the exact id (`check` lists the available ones) |
 | "Can't connect" | Wrong IP or port, you are not on the server's network or a firewall is in the way. Try the same URL in a browser |
-| Certificate error (HTTPS) | Put your CA's certificate in `OWUI_CA` |
+| Certificate error (HTTPS) | Put the path of your CA's certificate in `ca`, in your profile |
 | "did not call the tool" in `check` | Use `--mode text` |
-| "No reply within 900 s" | Very long reasoning or an overloaded server. Raise `LLM_TIMEOUT` or use `--think no` |
+| "No reply within 900 s" | Very long reasoning or an overloaded server. Raise `timeout` in your profile or use `--think no` |
 | "possible context truncation" | The conversation does not fit in the server's `num_ctx`. Raise it in the model's configuration (carefully, see section 5) |
-| `ngspice executable not found` | Install ngspice (section 1a) or set its path in `NGSPICE` |
+| `ngspice executable not found` | Install ngspice (section 1a) or set its path in `ngspice`, in the configuration file |
 | The self-test fails on some value | Please open an issue with the output: it may be a format change between ngspice versions |
 
 ---
 
-## 7. Versions
+## 8. Versions
 
 vibespice follows [Semantic Versioning](https://semver.org/). Every change is described in
 [CHANGELOG.md](CHANGELOG.md). Each run records in its log the version (`--version`) and the

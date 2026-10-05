@@ -11,7 +11,8 @@ with prompt_tokens). The "model" follows a fixed script per scenario.
 
 Direct use (to play by hand):
     python3 tests/fake_server.py challenge2 18080
-    OWUI_URL=http://127.0.0.1:18080 OWUI_API_KEY=sk-test python3 -m vibespice bench 2
+    VIBESPICE_URL=http://127.0.0.1:18080 VIBESPICE_API_KEY=sk-test \
+        VIBESPICE_MODEL=qwen3:32b python3 -m vibespice bench 2
 """
 from __future__ import annotations
 

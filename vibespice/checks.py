@@ -7,14 +7,15 @@ from __future__ import annotations
 import time
 
 from . import challenges as C
+from . import config
 from . import tools as hs
 from .agent import (PROFILES, APIError, OWUIClient, calls_from_text, model_options,
                     split_thinking, without_origin)
 from .batch import duration, fits_another
-from .console import BOLD, GREEN, RED, c, fmt_dur, shorten
+from .console import BOLD, GREEN, RED, YELLOW, c, fmt_dur, shorten, tilde
 
 
-def check(client: OWUIClient | None) -> int:
+def check(client: OWUIClient | None, settings: config.Settings) -> int:
     failures = 0
     print(c("1. ngspice", BOLD))
     v = hs.ngspice_version()
@@ -26,15 +27,24 @@ def check(client: OWUIClient | None) -> int:
         failures += not ok
     else:
         print(f"  ❌ '{hs.NGSPICE}' not found. Install ngspice (e.g. sudo apt install ngspice, "
-              "sudo dnf install ngspice or brew install ngspice) or set its path in NGSPICE.")
+              "sudo dnf install ngspice or brew install ngspice) or set its path in ngspice, in "
+              f"{tilde(settings.file)}.")
         failures += 1
     if client is None:
         return failures + 1
     print(c("2. Open WebUI", BOLD))
+    print(f"  {tilde(settings.file)}" + (f" · profile '{settings.profile}'" if settings.profile
+                                         else " · environment variables only"))
+    for w in settings.warnings:
+        print(c(f"  ⚠ {w}", YELLOW))
     print(f"  URL: {client.url} · key: {client.key[:5]}…{client.key[-3:]}")
     try:
         mods = client.models()
         print(f"  ✅ connected; {len(mods)} models visible to this key")
+        if not client.model:
+            print(f"  ❌ no model chosen: copy one into model, in your profile. Models: "
+                  f"{', '.join(mods[:15])}")
+            return failures + 1
         if client.model in mods:
             print(f"  ✅ model '{client.model}' is available")
         else:

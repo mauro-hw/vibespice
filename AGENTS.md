@@ -18,8 +18,9 @@ command once installed):
 
 - `vibespice/cli.py`: the commands (`run`, `bench`, `check`, `status`, `selftest`,
   `analyze`) and the guided menu. Nothing else parses arguments.
-- `vibespice/agent.py`: configuration, Open WebUI client, agent loop, logs and verification
-  of one run.
+- `vibespice/config.py`: the configuration file (profiles), environment variables and the
+  logs folder, always outside the repository.
+- `vibespice/agent.py`: Open WebUI client, agent loop, logs and verification of one run.
 - `vibespice/batch.py`: running jobs one after another, time limits and estimates.
 - `vibespice/checks.py`: `check` (connection) and `selftest` (tools and verifiers, no AI).
 - `vibespice/console.py`: terminal output, notification and keeping the computer awake.
@@ -41,7 +42,13 @@ command once installed):
   ```
   Keep `LICENSE` unchanged and keep the attribution in `NOTICE`.
 - **English everywhere**: code, identifiers, comments, messages, prompts and docs.
-- **Never commit `agent.conf`, keys or `logs/`.** They are in `.gitignore`.
+- **Nothing personal lives in the repository.** The configuration, with the API key, is
+  `~/.config/vibespice/config.toml` and the logs go to `~/.local/share/vibespice/logs/`.
+  Never commit either; `config.toml` and `logs/` are in `.gitignore` in case someone points
+  them at the repository.
+- **Tests never read the developer's configuration or logs.** `tests/run_tests.py` gives
+  each run its own `XDG_CONFIG_HOME` and `XDG_DATA_HOME` and drops every `VIBESPICE_*`
+  variable; keep it that way when adding tests.
 - **Model netlists run on the user's machine.** Keep the directive allow-list and the block
   on `.control`, `shell`, `.include`, `.lib` and `.osdi`. Do not loosen the simulation
   timeout or the Monte Carlo cap without a reason recorded in the changelog.

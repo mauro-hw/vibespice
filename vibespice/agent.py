@@ -17,7 +17,6 @@ from __future__ import annotations
 import csv
 import json
 import math
-import os
 import re
 import ssl
 import subprocess
@@ -27,78 +26,22 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__
+from . import __version__, config
+from . import challenges as C
+from . import tools as hs
 from .console import BLUE, BOLD, GREEN, GREY, RED, YELLOW, Heartbeat, c, fmt_dur, fmt_tok, \
     shorten, tilde
 
 DIR = Path(__file__).resolve().parent     # the package (for the git commit of the code)
-ROOT = DIR.parent                         # the clone: agent.conf and logs/
-LOGS = ROOT / "logs"
-
-# ---------------------------------------------------------------------------
-# Configuration: agent.conf (KEY=value) and environment variables (which take priority)
-# ---------------------------------------------------------------------------
-DEFAULT_CONF = {
-    "OWUI_URL": "",            # e.g. http://localhost:3000
-    "OWUI_API_KEY": "",        # Settings > Account > API Keys (starts with sk-)
-    "OWUI_MODEL": "qwen3:32b",
-    "OWUI_CA": "",             # CA certificate if your Open WebUI uses its own HTTPS
-    "NGSPICE": "ngspice",
-    "LLM_TIMEOUT": "900",      # seconds per model reply
-}
+LOGS = config.default_logs_dir()          # set by configure()
 
 
-CONF_FILE = ROOT / "agent.conf"
-_RE_CONF = re.compile(r"^(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*[=:]\s*(.*)$")
-
-
-def load_config() -> dict:
-    """Accepts KEY=value, KEY = value, KEY: value and 'export KEY=value'."""
-    conf = dict(DEFAULT_CONF)
-    if CONF_FILE.exists():
-        text = CONF_FILE.read_text(encoding="utf-8-sig", errors="replace")
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            m = _RE_CONF.match(line)
-            if m:
-                conf[m.group(1)] = m.group(2).split(" #")[0].strip().strip('"').strip("'")
-    for k in list(conf):
-        if os.environ.get(k):
-            conf[k] = os.environ[k]
-    return conf
-
-
-def config_diagnosis(conf: dict) -> str:
-    """Explains why the configuration is missing."""
-    lines = [f"Looking for the configuration in: {CONF_FILE}"]
-    if not CONF_FILE.exists():
-        others = sorted(p.name for p in ROOT.glob("agent*"))
-        lines.append("  ❌ That file does NOT exist. Create it with:  cp agent.conf.example "
-                     "agent.conf  and fill in OWUI_URL and OWUI_API_KEY")
-        if others:
-            lines.append(f"     (the folder contains: {', '.join(others)})")
-        return "\n".join(lines)
-    lines.append("  ✅ the file exists")
-    for key in ("OWUI_URL", "OWUI_API_KEY"):
-        v = conf.get(key, "")
-        if not v:
-            lines.append(f"  ❌ {key} is empty or I can't find it. It must be a line "
-                         f"without # in front, like this:  {key}=value")
-        elif key == "OWUI_URL" and not v.startswith(("http://", "https://")):
-            lines.append(f"  ❌ OWUI_URL must start with http:// or https:// (now: {v})")
-        else:
-            sample = v if key == "OWUI_URL" else f"{v[:5]}…{v[-3:]}"
-            lines.append(f"  ✅ {key} = {sample}")
-    return "\n".join(lines)
-
-
-CONF = load_config()
-os.environ["NGSPICE"] = CONF["NGSPICE"]   # before importing the tools
-
-from . import tools as hs        # noqa: E402
-from . import challenges as C    # noqa: E402
+def configure(settings: config.Settings) -> None:
+    """Applies the parts of the configuration that do not need a server: the logs folder
+    and the ngspice executable."""
+    global LOGS
+    LOGS = settings.logs
+    hs.NGSPICE = settings.ngspice
 
 
 # ---------------------------------------------------------------------------
@@ -110,8 +53,6 @@ class APIError(RuntimeError):
 
 class OWUIClient:
     def __init__(self, url: str, key: str, model: str, ca: str = "", timeout: float = 900):
-        if not url or not key or not url.startswith(("http://", "https://")):
-            raise APIError("Incomplete configuration.\n" + config_diagnosis(CONF))
         self.url = url.rstrip("/")
         self.key = key
         self.model = model
@@ -132,23 +73,23 @@ class OWUIClient:
             detail = e.read().decode("utf-8", "replace")[:600]
             hint = ""
             if e.code == 401:
-                hint = (" → Key not recognized: check that OWUI_API_KEY is copied correctly "
+                hint = (" → Key not recognized: check that api_key is copied correctly "
                         "(it starts with sk-) and that you haven't regenerated it.")
             elif e.code == 403:
                 hint = (" → No permission: is 'Enable API Keys' turned on in Admin > Settings > "
                         "Authentication? Is 'API Key Endpoint Restrictions' turned off? If the "
-                        "key is not an admin key, some queries (--status) are not allowed.")
+                        "key is not an admin key, some queries (status) are not allowed.")
             elif e.code == 404:
-                hint = " → Path or model not found. Check OWUI_URL and OWUI_MODEL."
+                hint = " → Path or model not found. Check url and model in your profile."
             raise APIError(f"HTTP {e.code} at {path}: {detail}{hint}") from None
         except urllib.error.URLError as e:
             raise APIError(f"Can't connect to {self.url} ({e.reason}). Are the URL and port "
                            "right? Can this machine reach the server?") from None
         except TimeoutError:
             raise APIError(f"No reply within {timeout or self.timeout:.0f} s "
-                           "(raise LLM_TIMEOUT if the model thinks for long).") from None
+                           "(raise timeout in your profile if the model thinks for long).") from None
         except json.JSONDecodeError:
-            raise APIError(f"Non-JSON reply at {path}. Does OWUI_URL point to Open WebUI?") \
+            raise APIError(f"Non-JSON reply at {path}. Does url point to Open WebUI?") \
                 from None
 
     def models(self) -> list[str]:
@@ -176,11 +117,17 @@ class OWUIClient:
         return self._request("POST", "/api/chat/completions", body)
 
 
-def make_client(model: str | None = None) -> OWUIClient:
-    """The client for the configured server; raises APIError if the configuration is
-    incomplete."""
-    return OWUIClient(CONF["OWUI_URL"], CONF["OWUI_API_KEY"], model or CONF["OWUI_MODEL"],
-                      CONF["OWUI_CA"], float(CONF["LLM_TIMEOUT"]))
+def make_client(settings: config.Settings, model: str | None = None,
+                need_model: bool = True) -> OWUIClient:
+    """The client for the configured server. Raises APIError, explained, if the
+    configuration is incomplete or (with need_model) there is no model."""
+    if settings.problems:
+        raise APIError("Incomplete configuration.\n" + config.diagnosis(settings))
+    model = model or settings.model
+    if need_model and not model:
+        raise APIError("No model chosen: set model in your profile or pass --model. "
+                       "'vibespice check' lists the models on the server.")
+    return OWUIClient(settings.url, settings.api_key, model, settings.ca, settings.timeout)
 
 
 def loaded_context(client: OWUIClient) -> int | None:

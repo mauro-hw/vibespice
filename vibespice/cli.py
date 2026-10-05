@@ -10,6 +10,7 @@ Command line: vibespice <command>.
     vibespice bench all --time-limit 2h
     vibespice check | status | selftest
     vibespice analyze --by-version
+    vibespice init                        # creates the configuration file
 
 Without arguments, in a terminal, a guided menu asks what it needs and shows the command.
 """
@@ -20,9 +21,9 @@ import shlex
 import sys
 from pathlib import Path
 
-from . import __version__, agent, analyze, batch, checks
+from . import __version__, agent, analyze, batch, checks, config
 from . import challenges as C
-from .console import BLUE, BOLD, GREY, RED, c
+from .console import BLUE, BOLD, GREEN, GREY, RED, c, tilde
 
 
 def prog_name() -> str:
@@ -36,6 +37,19 @@ def list_challenges(prog: str) -> None:
         print(f"  {cid}  {ch.title}  " + c(f"[{', '.join(ch.tags)}]", GREY))
     print(c("\nSolutions are in vibespice/challenges.py and in the README (the model never "
             "sees them).", GREY))
+
+
+def init(prog: str) -> int:
+    path, created = config.init()
+    if not created:
+        print(f"The configuration file already exists: {tilde(path)}")
+        print(c(f"Edit it with any text editor, then run: {prog} check", GREY))
+        return 0
+    print(c(f"✅ Created {tilde(path)} (only you can read it)", GREEN))
+    print(f"Open it and fill in url, api_key and model in [profiles.main], for example:\n"
+          f"  nano {tilde(path)}\nThen run:  {prog} check   (it lists the models if model is "
+          "empty)")
+    return 0
 
 
 def status(client: agent.OWUIClient) -> int:
@@ -112,8 +126,11 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"vibespice {__version__}")
     sub = p.add_subparsers(dest="command", metavar="command")
 
-    model = argparse.ArgumentParser(add_help=False)
-    model.add_argument("--model", help="model id on the server (default: OWUI_MODEL)")
+    server = argparse.ArgumentParser(add_help=False)
+    server.add_argument("--profile", help="profile of the configuration file to use (default: "
+                                          "default_profile)")
+    model = argparse.ArgumentParser(add_help=False, parents=[server])
+    model.add_argument("--model", help="model id on the server (default: model in the profile)")
     model.add_argument("--think", default="yes",
                        help="reasoning: yes, no or a level the model supports (qwen3.8: low, "
                             "medium, xhigh; with 'yes', the model's default level)")
@@ -141,12 +158,15 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
                    help="maximum batch time, e.g. 2h, 90m or 1h30; does not start an iteration "
                         "that cannot finish in time")
 
-    k = sub.add_parser("check", help="check ngspice, the connection, the model and tool calls")
-    k.add_argument("--model", help="model id on the server (default: OWUI_MODEL)")
-    sub.add_parser("status", help="show which models the server has loaded (admin key)")
+    k = sub.add_parser("check", parents=[server],
+                       help="check ngspice, the connection, the model and tool calls")
+    k.add_argument("--model", help="model id on the server (default: model in the profile)")
+    sub.add_parser("status", parents=[server],
+                   help="show which models the server has loaded (admin key)")
     sub.add_parser("selftest", help="local test without AI: ngspice, tools and verifiers")
     a = sub.add_parser("analyze", help="statistics of the saved runs")
     analyze.add_arguments(a)
+    sub.add_parser("init", help="create the configuration file (it never overwrites it)")
     return p
 
 
@@ -181,6 +201,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command is None:
         p.print_help()
         return 0
+    if args.command == "init":
+        return init(prog)
+    settings = config.load(getattr(args, "profile", None))
+    agent.configure(settings)
     if args.command == "selftest":
         return 1 if checks.selftest() else 0
     if args.command == "analyze":
@@ -206,15 +230,16 @@ def main(argv: list[str] | None = None) -> int:
                 else "single")
 
     try:
-        client = agent.make_client(getattr(args, "model", None))
+        client = agent.make_client(settings, getattr(args, "model", None),
+                                   need_model=args.command in ("run", "bench"))
     except agent.APIError as e:
         if args.command == "check":
-            checks.check(None)
+            checks.check(None, settings)
         print(c(str(e), RED))
         return 2
 
     if args.command == "check":
-        return 1 if checks.check(client) else 0
+        return 1 if checks.check(client, settings) else 0
     if args.command == "status":
         return status(client)
     return batch.run_batch(client, jobs, args, kind)

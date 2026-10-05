@@ -27,7 +27,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-NGSPICE = os.environ.get("NGSPICE", "ngspice")
+NGSPICE = "ngspice"       # the executable; the configuration can change it
 SIM_TIMEOUT = 30          # seconds per simulation
 MAX_SAMPLES = 5000        # Monte Carlo cap
 MAX_CORNER_COMPONENTS = 10

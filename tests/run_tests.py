@@ -6,7 +6,8 @@ End-to-end tests without a real server.
 
 Runs the self-test and then runs the agent against a fake Open WebUI in several scenarios
 (native calls, calls written as text, forgotten JSON, loops, empty replies, netlist
-errors, wrong answer...).
+errors, wrong answer...), free tasks, the configuration file and the log analysis. It
+never reads your configuration or your logs: everything goes to a temporary folder.
 
     python3 tests/run_tests.py
 """
@@ -72,58 +73,115 @@ CASES = [
 ]
 
 
+def vibespice(args: list[str], env: dict, cwd: Path, timeout: float = 300) -> tuple[int, str]:
+    r = subprocess.run([sys.executable, "-m", "vibespice", *args], cwd=cwd, env=env,
+                       capture_output=True, text=True, timeout=timeout)
+    return r.returncode, r.stdout + r.stderr
+
+
+def report(name: str, ok: bool, output: str = "", missing=()) -> int:
+    print(("✅" if ok else "❌") + " " + name)
+    if not ok:
+        print((f"   missing: {list(missing)}\n" if missing else "")
+              + "\n".join("   | " + l for l in output.splitlines()[-25:]))
+    return 0 if ok else 1
+
+
+def config_tests(tmp: Path, env: dict) -> int:
+    """The configuration file: profiles, VIBESPICE_PROFILE, environment over file, problems
+    explained, init and the logs folder."""
+    failures = 0
+    cfg, logs = tmp / "cfg", tmp / "cfg-logs"
+    base = {k: v for k, v in env.items() if k not in ("VIBESPICE_API_KEY", "VIBESPICE_MODEL")}
+    base["XDG_CONFIG_HOME"] = str(cfg)
+    srv, url = fs.start_in_background("cold")
+    try:
+        (cfg / "vibespice").mkdir(parents=True)
+        (cfg / "vibespice" / "config.toml").write_text(
+            f'default_profile = "broken"\nlogs_dir = "{logs}"\n\n'
+            f'[profiles.broken]\nurl = "{url}"\n\n'
+            f'[profiles.lab]\nprovider = "openwebui"\nurl = "{url}"\n'
+            f'api_key = "{fs.KEY}"\nmodel = "{fs.MODEL}"\n', encoding="utf-8")
+        cases = [
+            (["bench", "0", "--profile", "lab"], {}, 0, ["Result: PASS"]),
+            (["bench", "0"], {"VIBESPICE_PROFILE": "lab"}, 0, ["Result: PASS"]),
+            (["bench", "0", "--profile", "lab"], {"VIBESPICE_MODEL": "does-not-exist"}, 0,
+             ["HTTP 404"]),
+            (["bench", "0"], {}, 2, ["profile 'broken'", "api_key is missing"]),
+            (["check", "--profile", "nope"], {}, 2,
+             ["There is no profile 'nope'", "Profiles: broken, lab"]),
+        ]
+        for args, extra, code, expected in cases:
+            rc, out = vibespice(args, dict(base, **extra), tmp)
+            missing = [e for e in expected if e not in out]
+            failures += report(f"config     {' '.join(args)} {extra or ''}".rstrip(),
+                               rc == code and not missing and "Traceback" not in out,
+                               out, missing)
+    finally:
+        srv.shutdown()
+    failures += report("config     logs_dir: the runs go to the folder in the file",
+                       len(list(logs.glob("*_challenge0*.md"))) == 3
+                       and (logs / "summary.csv").exists())
+
+    # Without a file: what to do; init creates it (private) and never overwrites it
+    empty = dict(base, XDG_CONFIG_HOME=str(tmp / "empty"))
+    rc, out = vibespice(["check"], empty, tmp)
+    failures += report("config     check without a file explains it",
+                       rc == 2 and "vibespice init" in out and "url is missing" in out, out)
+    fresh = dict(base, XDG_CONFIG_HOME=str(tmp / "fresh"))
+    path = tmp / "fresh" / "vibespice" / "config.toml"
+    rc1, out1 = vibespice(["init"], fresh, tmp)
+    rc2, out2 = vibespice(["init"], fresh, tmp)
+    rc3, out3 = vibespice(["check"], fresh, tmp)
+    out = out1 + out2 + out3
+    failures += report("config     init creates the file (600), never overwrites it",
+                       rc1 == 0 and "Created" in out1 and path.exists()
+                       and path.stat().st_mode & 0o777 == 0o600
+                       and "already exists" in out2
+                       and rc3 == 2 and "api_key still has the example value" in out3, out)
+    bad = tmp / "bad.toml"
+    bad.write_text("url = \n", encoding="utf-8")
+    rc, out = vibespice(["check"], dict(base, VIBESPICE_CONFIG=str(bad)), tmp)
+    failures += report("config     a broken file is explained",
+                       rc == 2 and "is not valid TOML" in out, out)
+    return failures
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="vibespice_tests_"))
-    shutil.copytree(ROOT / "vibespice", tmp / "vibespice",
-                    ignore=shutil.ignore_patterns("__pycache__"))
     (tmp / "task.txt").write_text("Design a divider that gives 5 V from 12 V.\n",
                                   encoding="utf-8")
-    env = dict(os.environ, NO_COLOR="1", VIBESPICE_NO_NOTIFY="1",
-               OWUI_API_KEY=fs.KEY, OWUI_MODEL=fs.MODEL,
+    # Never the developer's configuration or logs: their own folders, and no VIBESPICE_*
+    env = {k: v for k, v in os.environ.items() if not k.startswith("VIBESPICE_")}
+    env.update(NO_COLOR="1", VIBESPICE_NO_NOTIFY="1", PYTHONPATH=str(ROOT),
+               XDG_CONFIG_HOME=str(tmp / "config"), XDG_DATA_HOME=str(tmp / "data"),
+               VIBESPICE_API_KEY=fs.KEY, VIBESPICE_MODEL=fs.MODEL,
                NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost")
     failures = 0
 
-    r = subprocess.run([sys.executable, "-m", "vibespice", "selftest"], cwd=tmp,
-                       env=env, capture_output=True, text=True, timeout=300)
-    ok = r.returncode == 0 and "Self-test passed" in r.stdout
-    print(("✅" if ok else "❌") + " selftest")
-    if not ok:
-        failures += 1
-        print(r.stdout[-1500:], r.stderr[-800:])
-
-    r = subprocess.run([sys.executable, "-m", "vibespice", "--version"], cwd=tmp,
-                       env=env, capture_output=True, text=True, timeout=60)
-    ok = r.returncode == 0 and r.stdout.startswith("vibespice ")
-    print(("✅" if ok else "❌") + " --version")
-    failures += not ok
+    rc, out = vibespice(["selftest"], env, tmp)
+    failures += report("selftest", rc == 0 and "Self-test passed" in out, out)
+    rc, out = vibespice(["--version"], env, tmp, timeout=60)
+    failures += report("--version", rc == 0 and out.startswith("vibespice "), out)
 
     for scenario, args, expected in CASES:
         srv, url = fs.start_in_background(scenario)
         try:
-            r = subprocess.run([sys.executable, "-m", "vibespice", *args], cwd=tmp,
-                               env=dict(env, OWUI_URL=url), capture_output=True,
-                               text=True, timeout=300)
+            rc, out = vibespice(args, dict(env, VIBESPICE_URL=url), tmp)
         finally:
             srv.shutdown()
-        output = r.stdout + r.stderr
-        missing = [e for e in expected if e not in output]
-        ok = not missing and "Traceback" not in output
-        print(("✅" if ok else "❌") + f" {scenario:10s} {' '.join(args)}")
-        if not ok:
-            failures += 1
-            print(f"   missing: {missing}\n"
-                  + "\n".join("   | " + l for l in output.splitlines()[-25:]))
+        missing = [e for e in expected if e not in out]
+        failures += report(f"{scenario:10s} {' '.join(args)}",
+                           not missing and "Traceback" not in out, out, missing)
 
     # The log analysis must understand what the tests left behind
-    r = subprocess.run([sys.executable, "-m", "vibespice", "analyze", "--by-version"], cwd=tmp,
-                       env=env, capture_output=True, text=True, timeout=120)
+    rc, out = vibespice(["analyze", "--by-version"], env, tmp, timeout=120)
     expected = ["runs", "Q sat/cutoff", "code", "Failing criteria", "simulate",
                 "Code versions: 0.1"]
-    ok = r.returncode == 0 and all(e in r.stdout for e in expected) and "Traceback" not in r.stderr
-    print(("✅" if ok else "❌") + " analyze")
-    if not ok:
-        failures += 1
-        print(r.stdout[-1500:], r.stderr[-800:])
+    failures += report("analyze", rc == 0 and all(e in out for e in expected)
+                       and "Traceback" not in out, out)
+
+    failures += config_tests(tmp, env)
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nAll tests passed." if not failures else f"\n{failures} test(s) failed.")

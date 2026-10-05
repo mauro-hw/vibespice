@@ -31,7 +31,11 @@ First public version, planned as 0.1.0.
   from previous runs and a desktop notification at the end.
 - Reasoning control with `--think` (yes, no or the model's own levels), checked against
   the model card, and per-family sampling profiles.
-- Logs in `logs/`: one Markdown and one JSON file per run, and `summary.csv`.
+- Configuration outside the code folder, in `~/.config/vibespice/config.toml`, with one
+  profile per server (`--profile`, `default_profile`). `vibespice init` creates it,
+  readable only by you. `VIBESPICE_*` environment variables take priority over it.
+- Logs in `~/.local/share/vibespice/logs/` (or `logs_dir`, or `VIBESPICE_LOGS`): one
+  Markdown and one JSON file per run, and `summary.csv`.
 - `analyze`: pass rate, times, tool use and signs of common mistakes, per
   challenge and configuration, optionally split by code version (`--by-version`).
 - Traceability: `--version`, and every log and `summary.csv` row record the version and
