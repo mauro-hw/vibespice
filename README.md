@@ -102,31 +102,30 @@ The quickest way is the **Claude API**:
 Do you have another API (OpenAI, OpenRouter) or a model on your own computer (Ollama) or
 server (Open WebUI)? You can use it instead: see [section 3](#3-other-models-and-apis).
 
-### Step 5. Give vibespice your key
+### Step 5. Tell vibespice which model to use
 
 ```bash
 vibespice init
 ```
 
-This creates your configuration file, `~/.config/vibespice/config.toml`, which only you can
-read. Open it with a text editor, for example:
+It asks three things and checks them as you go:
+1. **Which API** you use: Claude, OpenAI, OpenRouter, Ollama, another compatible one or
+   Open WebUI. For Claude, just press Enter.
+2. **Your key.** Paste it: Ctrl+Shift+V in most Linux terminals, Cmd+V on macOS, right
+   click on Windows. **Nothing shows on screen while you paste it**, on purpose; press Enter
+   afterwards. vibespice tries it straight away and tells you if it is wrong.
+3. **The model**, from the list your API offers. For Claude it suggests `claude-opus-5-5`:
+   press Enter to take it.
 
-```bash
-nano ~/.config/vibespice/config.toml
-```
+It saves everything in `~/.config/vibespice/config.toml`, a file only you can read, and
+offers to check the connection, which is step 6. Run `vibespice init` again whenever you
+want to add another model or API.
 
-Find this line and paste your key between the quotes, in place of the example:
-
-```toml
-api_key = "sk-ant-paste-your-key-here"
-```
-
-In `nano`, save with **Ctrl+O** and Enter, and leave with **Ctrl+X**. If you prefer an editor
-with a window: `gnome-text-editor ~/.config/vibespice/config.toml` on Linux, or
-`open -e ~/.config/vibespice/config.toml` on macOS. (`.config` is a hidden folder: in the
-file manager, Ctrl+H shows it.)
-
-> **Instead of editing the file**, you can leave `api_key` empty and put the key in the
+> **Prefer to edit the file yourself?** `vibespice init --template` writes a commented file
+> without asking anything. Open it with a text editor (`nano ~/.config/vibespice/config.toml`;
+> save with Ctrl+O and Enter, leave with Ctrl+X) and paste your key between the quotes of
+> `api_key = "sk-ant-paste-your-key-here"`. `.config` is a hidden folder: in the file
+> manager, Ctrl+H shows it. You can also leave `api_key` empty and put the key in the
 > environment: `export ANTHROPIC_API_KEY=sk-ant-…` (add that line to `~/.bashrc` so that it
 > stays).
 
@@ -136,9 +135,9 @@ file manager, Ctrl+H shows it.)
 vibespice check
 ```
 
-It checks ngspice, your key, the model, a short chat and a tool call. It should end with
-**All good.** If it doesn't, it says what is wrong; see also
-[troubleshooting](#troubleshooting).
+If you said yes at the end of step 5, you have just seen this. It checks ngspice, your key,
+the model, a short chat and a tool call, and it should end with **All good.** If it doesn't,
+it says what is wrong; see also [troubleshooting](#troubleshooting).
 
 ### Step 7. Your first task
 
@@ -150,8 +149,9 @@ You see each step as it happens: how long the model took, which simulation it as
 the first lines of the result. At the end, its answer and the file where the whole run is
 saved. A simple task takes from a few seconds to a few minutes.
 
-**Can't remember the commands?** Type `vibespice` alone: a menu asks what you want to do and
-shows you the exact command before running it.
+**Can't remember the commands?** Type `vibespice` alone: a menu asks what you want to do
+(setting up a model or API is one of the options) and shows you the exact command before
+running it.
 
 **Updating:** `pipx upgrade vibespice`. **Uninstalling:** `pipx uninstall vibespice`. Your
 configuration and your results stay in `~/.config/vibespice` and `~/.local/share/vibespice`;
@@ -231,10 +231,12 @@ vibespice run --think medium --show-thinking "Design a 1 kHz RC low-pass filter 
 
 ### The configuration file
 
-`~/.config/vibespice/config.toml` has **one profile per model or API**. `vibespice init`
-creates it with a profile for Claude and commented examples for the others: to use one,
-remove the `#` at the start of its lines and fill it in. `default_profile` says which profile
-is used, and `--profile NAME` picks another one for a single command.
+`~/.config/vibespice/config.toml` has **one profile per model or API**. The easiest way to
+add one is `vibespice init`, which asks the questions of step 5 and appends the new profile
+without touching the others. You can also edit the file: it has commented examples for every
+provider (remove the `#` at the start of the lines of one and fill it in).
+`default_profile` says which profile is used, and `--profile NAME` picks another one for a
+single command.
 
 ```toml
 default_profile = "claude"
@@ -438,7 +440,7 @@ the model can correct itself, which is exactly what we want to see.
 | `status` | Open WebUI only: which model Ollama has loaded, with which context and how much VRAM it uses (admin key) |
 | `selftest` | Local test without any model: ngspice, the tools and the verifiers |
 | `analyze` | Statistics of the saved runs (section 4) |
-| `init` | Creates the configuration file; it never overwrites it (section 3) |
+| `init` | Asks which API, key and model to use, checks them and saves them; run it again to add another (section 3). `--template` writes a commented file instead, without questions. It never overwrites anything |
 | `--version` | Prints the version, the code commit, the license and where the source code is |
 
 Type `vibespice <command> -h` for the options of each one.
@@ -473,7 +475,8 @@ suspend it by hand; on battery, closing the lid does suspend it. If it suspends,
 |---|---|
 | `vibespice: command not found` | Run `pipx ensurepath` and open a new terminal (step 2) |
 | "Incomplete configuration" | It says what is missing and in which file. Without a file: `vibespice init` (step 5) |
-| "api_key still has the example value" | Paste your key in the configuration file (step 5) |
+| Nothing shows when I paste the key | That is on purpose: paste it and press Enter (step 5) |
+| "api_key still has the example value" | Paste your key in the configuration file, or run `vibespice init` (step 5) |
 | `HTTP 401` | Key copied wrong, regenerated or for another provider (section 3) |
 | `HTTP 402` | No credit left: add it in your provider's console (for Claude, the Claude Console). A Claude Pro or Max subscription does not include the API |
 | `HTTP 403` | The key has no permission for that model. With Open WebUI: *Enable API Keys* off, *API Key Endpoint Restrictions* on, or a key without admin rights (section 3) |

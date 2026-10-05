@@ -16,7 +16,9 @@ analyze, the list of challenges) still work.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,13 +47,14 @@ KEY_HELP = {
     "openwebui": "create one in Open WebUI, Settings > Account > API Keys (it starts with sk-)",
 }
 
-TEMPLATE = f'''# vibespice configuration.
-# Keep this file private: it can hold API keys (chmod 600).
+HEADER = """# vibespice configuration.
+# Keep this file private: it can hold API keys (chmod 600). Change it with any text editor,
+# or run "vibespice init" again to add another model or API.
 # Environment variables take priority over it: VIBESPICE_PROFILE, VIBESPICE_PROVIDER,
 # VIBESPICE_URL, VIBESPICE_API_KEY, VIBESPICE_MODEL, VIBESPICE_LOGS...
 
 # Profile used when you don't pass --profile
-default_profile = "claude"
+default_profile = "{default}"
 
 # Optional: where the logs go (default: ~/.local/share/vibespice/logs)
 # logs_dir = "~/vibespice-logs"
@@ -61,49 +64,83 @@ default_profile = "claude"
 
 # One profile per server or API. provider is "anthropic" (the Claude API), "openai" (any
 # OpenAI-compatible API) or "openwebui".
+"""
 
-# The Claude API. Create a key in the Claude Console (https://platform.claude.com); the API
-# is paid per use, separately from a Claude Pro or Max subscription.
-[profiles.claude]
-provider = "anthropic"
-# Paste your key (it starts with sk-ant-), or leave it empty and set ANTHROPIC_API_KEY
-api_key = "{EXAMPLE_KEY}"
-model = "claude-opus-5-5"
-
-# OpenAI or any OpenAI-compatible API. url is the API's base (it usually ends in /v1). If
+# Commented examples, by profile name: the file shows the ones it doesn't use
+EXAMPLES = {
+    "claude": """# The Claude API. Create a key in the Claude Console (https://platform.claude.com); the API
+# is paid per use, separately from a Claude Pro or Max subscription. If api_key is empty,
+# ANTHROPIC_API_KEY is used.
+# [profiles.claude]
+# provider = "anthropic"
+# api_key = "sk-ant-..."
+# model = "claude-opus-5-5"
+""",
+    "openai": """# OpenAI or any OpenAI-compatible API. url is the API's base (it usually ends in /v1). If
 # api_key is empty, OPENAI_API_KEY is used; local servers need no key.
 # [profiles.openai]
 # provider = "openai"
 # url = "https://api.openai.com/v1"
 # api_key = "sk-..."
 # model = ""                      # an id the API lists ("vibespice check" shows them)
-
-# OpenRouter: one key for many models
+""",
+    "openrouter": """# OpenRouter: one key for many models
 # [profiles.openrouter]
 # provider = "openai"
 # url = "https://openrouter.ai/api/v1"
 # api_key = "sk-or-..."
 # model = ""
-
-# Ollama on this computer, through its OpenAI-compatible API (no key)
+""",
+    "local": """# Ollama on this computer, through its OpenAI-compatible API (no key)
 # [profiles.local]
 # provider = "openai"
 # url = "http://localhost:11434/v1"
 # model = ""                      # a name from "ollama list"
-
-# Open WebUI (Settings > Account > API Keys; an admin key also shows the loaded models)
+""",
+    "office": """# Open WebUI (Settings > Account > API Keys; an admin key also shows the loaded models)
 # [profiles.office]
 # provider = "openwebui"
 # url = "http://localhost:3000"
 # api_key = "sk-..."
 # model = ""
+""",
+}
 
-# Optional in any profile:
+OPTIONAL = """# Optional in any profile:
 # ca = "/path/to/your-ca.pem"     # CA certificate, for a server with its own HTTPS certificate
 # timeout = 900                   # seconds to wait for each model reply
 # max_tokens = 16000              # cap on each reply (the Claude API needs one: 16000 by default)
 # fallbacks = false               # Claude: don't hand a declined request to a fallback model
-'''
+"""
+
+PLACEHOLDER_PROFILE = {"provider": "anthropic", "api_key": EXAMPLE_KEY, "model": "claude-opus-5-5"}
+PLACEHOLDER_NOTE = """# The Claude API. Create a key in the Claude Console (https://platform.claude.com); the API
+# is paid per use, separately from a Claude Pro or Max subscription.
+# Paste your key (it starts with sk-ant-), or leave it empty and set ANTHROPIC_API_KEY.
+"""
+
+
+def profile_block(name: str, profile: dict, note: str = "") -> str:
+    """A [profiles.NAME] table. Strings are written as JSON strings, which TOML accepts."""
+    lines = [f"[profiles.{name}]"]
+    for key in ("provider", "url", "api_key", "model", "ca", "timeout", "max_tokens",
+                "fallbacks"):
+        if key in profile:
+            v = profile[key]
+            lines.append(f"{key} = " + (("true" if v else "false") if isinstance(v, bool)
+                                        else str(v) if isinstance(v, (int, float))
+                                        else json.dumps(str(v))))
+    return note + "\n".join(lines) + "\n"
+
+
+def render(default: str, name: str, profile: dict, note: str = "") -> str:
+    """A whole configuration file: the header, one profile and the commented examples."""
+    examples = "\n".join(text for key, text in EXAMPLES.items() if key != name)
+    return (HEADER.format(default=default) + "\n" + profile_block(name, profile, note) + "\n"
+            + examples + "\n" + OPTIONAL)
+
+
+TEMPLATE = render("claude", "claude", PLACEHOLDER_PROFILE, PLACEHOLDER_NOTE)
 
 
 def _xdg(variable: str, default: str) -> Path:
@@ -248,14 +285,48 @@ def diagnosis(s: Settings) -> str:
     return "\n".join(lines)
 
 
+def _write_private(path: Path, text: str) -> None:
+    """Writes the file readable only by its owner (600), replacing it in one step."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.replace(tmp, path)
+
+
 def init() -> tuple[Path, bool]:
-    """Creates the configuration file from the template, private (600). Returns (file,
-    created); it never overwrites an existing one."""
+    """Creates the configuration file from the commented template, private (600). Returns
+    (file, created); it never overwrites an existing one."""
     path = config_file()
     if path.exists():
         return path, False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(TEMPLATE)
+    _write_private(path, TEMPLATE)
     return path, True
+
+
+def create(name: str, profile: dict) -> Path:
+    """Creates the configuration file with one profile, the default (it must not exist)."""
+    path = config_file()
+    if path.exists():
+        raise FileExistsError(path)
+    _write_private(path, render(name, name, profile))
+    return path
+
+
+def add_profile(name: str, profile: dict, make_default: bool) -> Path:
+    """Appends a profile to the existing file and, if asked, makes it the default. The rest
+    of the file stays as it is; if the result would not be valid, nothing is written."""
+    path = config_file()
+    text = path.read_text(encoding="utf-8-sig")
+    new = text.rstrip("\n") + "\n\n" + profile_block(name, profile)
+    if make_default:
+        line = f'default_profile = "{name}"'
+        new, n = re.subn(r"^default_profile\s*=.*$", line, new, count=1, flags=re.M)
+        if not n:
+            new = line + "\n" + new
+    data = tomllib.loads(new)               # raises if something went wrong: nothing written
+    if (data.get("profiles") or {}).get(name, {}).get("provider") != profile["provider"]:
+        raise ValueError("the new profile could not be added")
+    _write_private(path, new)
+    return path

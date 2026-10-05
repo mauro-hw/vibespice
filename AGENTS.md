@@ -20,6 +20,7 @@ command once installed):
   `analyze`) and the guided menu. Nothing else parses arguments.
 - `vibespice/config.py`: the configuration file (profiles), environment variables and the
   logs folder, always outside the repository.
+- `vibespice/wizard.py`: `vibespice init` in a terminal (questions, key check, new profile).
 - `vibespice/agent.py`: agent loop, logs and verification of one run.
 - `vibespice/providers/`: one module per API (`anthropic.py`, `openai_chat.py` for Open
   WebUI and OpenAI-compatible APIs) behind a common interface in `base.py`: `Provider`

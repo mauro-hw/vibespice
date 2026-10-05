@@ -23,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(ROOT))
 import fake_server as fs  # noqa: E402
 
 # Providers other than Open WebUI ({url} is the fake server; None removes the variable)
@@ -198,6 +199,88 @@ def config_tests(tmp: Path, env: dict) -> int:
     return failures
 
 
+def wizard_tests(tmp: Path) -> int:
+    """vibespice init in a terminal, run here with scripted answers against the fake
+    server, with its own configuration folder and no key in the environment."""
+    import tomllib
+
+    from vibespice import config, wizard
+    saved = dict(os.environ)
+    for k in list(os.environ):
+        if k.startswith("VIBESPICE_") or k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+            del os.environ[k]
+    os.environ["XDG_CONFIG_HOME"] = str(tmp / "wizard")
+    failures = 0
+
+    def init(answers, secrets, scenario="challenge2", urls=None) -> tuple[int, str]:
+        srv, url = fs.start_in_background(scenario)
+        a, k, lines = iter(answers), iter(secrets), []
+
+        def ask(prompt):            # out of answers = end of input, as in a terminal
+            lines.append(prompt)
+            try:
+                return next(a).format(url=url)
+            except StopIteration:
+                raise EOFError from None
+        try:
+            rc = wizard.run("vibespice", ask, lambda prompt: next(k), lines.append,
+                            {n: u.format(url=url) for n, u in (urls or {}).items()})
+        finally:
+            srv.shutdown()
+        return rc, "\n".join(lines)
+
+    def profiles() -> dict:
+        path = config.config_file()
+        return tomllib.loads(path.read_text()) if path.exists() else {}
+
+    try:
+        # Claude: a wrong key, then the right one; Enter takes the suggested model
+        rc, out = init(["1", "1", "", "n"], ["sk-ant-wrong", fs.KEY],
+                       urls={"claude": "{url}"})
+        d, path = profiles(), config.config_file()
+        failures += report("init       new file: Claude, wrong key then the right one",
+                           rc == 0 and "HTTP 401" in out and "Connected: 2 models" in out
+                           and d.get("default_profile") == "claude"
+                           and d["profiles"]["claude"]["model"] == "claude-opus-5-5"
+                           and d["profiles"]["claude"]["api_key"] == fs.KEY
+                           and path.stat().st_mode & 0o777 == 0o600, out)
+        before = path.read_text()
+        # Open WebUI: a typo in the model, then a number; becomes the default
+        rc, out = init(["y", "6", "{url}", "qwen", "1", "y", "n"], [fs.KEY])
+        d = profiles()
+        failures += report("init       adds Open WebUI, suggests models, keeps the rest",
+                           rc == 0 and "Did you mean: qwen3:32b" in out
+                           and d.get("default_profile") == "openwebui"
+                           and d["profiles"]["openwebui"]["model"] == "qwen3:32b"
+                           and before.replace('default_profile = "claude"',
+                                              'default_profile = "openwebui"')
+                           in path.read_text(), out)
+        # Ollama: no key; not the default
+        rc, out = init(["y", "4", "qwen3:8b", "n", "n"], [], scenario="nokey",
+                       urls={"local": "{url}/v1"})
+        d = profiles()
+        failures += report("init       Ollama without a key, not the default",
+                           rc == 0 and "api_key" in d["profiles"]["local"]
+                           and not d["profiles"]["local"]["api_key"]
+                           and d["default_profile"] == "openwebui", out)
+        # Unreachable server: saved anyway, with the model typed by hand
+        rc, out = init(["y", "5", "http://127.0.0.1:9/v1", "2", "my-model", "n"], [""])
+        d = profiles()
+        failures += report("init       unreachable server, saved anyway",
+                           rc == 0 and "Can't connect" in out
+                           and d["profiles"]["custom"]["model"] == "my-model", out)
+        # Cancelled halfway: nothing changes
+        text = path.read_text()
+        rc, out = init(["y"], [])
+        failures += report("init       cancelled halfway, nothing saved",
+                           rc == 1 and "nothing was saved" in out and path.read_text() == text,
+                           out)
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+    return failures
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="vibespice_tests_"))
     (tmp / "task.txt").write_text("Design a divider that gives 5 V from 12 V.\n",
@@ -242,6 +325,7 @@ def main() -> int:
                        and "Traceback" not in out, out)
 
     failures += config_tests(tmp, env)
+    failures += wizard_tests(tmp)
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nAll tests passed." if not failures else f"\n{failures} test(s) failed.")

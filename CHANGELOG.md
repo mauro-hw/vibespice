@@ -16,8 +16,8 @@ describes everything vibespice does.
 - `vibespice run "task"`: gives a task to a model and runs ngspice on your computer, in a
   loop, until the model gives its final answer. The task can also come from a file
   (`--file`) or standard input (`--file -`).
-- Guided menu when `vibespice` runs alone in a terminal: it asks what you want to do and
-  shows the exact command before running it.
+- Guided menu when `vibespice` runs alone in a terminal: it asks what you want to do
+  (setting up a model or API included) and shows the exact command before running it.
 - Tools for the model: `simulate` (operating point, transistor quantities, connections in
   words and `.meas` results), `analyze_tolerances` (corners and Monte Carlo, also over a
   `.meas`), `standard_values` (E3 to E96) and `calculate` (exact, with SPICE suffixes).
@@ -65,11 +65,15 @@ describes everything vibespice does.
 **Configuration, results and installation**
 - Installable with `pipx install git+https://github.com/mauro-hw/vibespice` (no runtime
   dependencies); from a clone, `python3 -m vibespice`.
+- `vibespice init` asks which API to use (Claude, OpenAI, OpenRouter, Ollama, another
+  OpenAI-compatible API or Open WebUI), the key (hidden while you paste it) and the model,
+  from the list the API offers. It checks the key at once, lets you try again, writes the
+  file readable only by you and offers to run `check`. Run again, it adds another profile
+  without touching the others; `--template` writes a commented file instead.
 - Configuration outside the code folder, in `~/.config/vibespice/config.toml`, with one
-  profile per model or API (`default_profile`, `--profile`). `vibespice init` creates it,
-  readable only by you, with a Claude profile and commented examples for the others. Keys
-  can also come from `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and `VIBESPICE_*`
-  environment variables take priority over the file.
+  profile per model or API (`default_profile`, `--profile`). Keys can also come from
+  `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, and `VIBESPICE_*` environment variables take
+  priority over the file.
 - Results in `~/.local/share/vibespice/logs/` (or `logs_dir`, or `VIBESPICE_LOGS`): one
   Markdown and one JSON file per run, and `summary.csv` with one row per run (provider,
   model, result, steps, time, input tokens, cached tokens and output tokens).

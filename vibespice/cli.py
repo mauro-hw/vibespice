@@ -11,7 +11,7 @@ Command line: vibespice <command>.
     vibespice bench all --time-limit 2h
     vibespice check | status | selftest
     vibespice analyze --by-version
-    vibespice init                        # creates the configuration file
+    vibespice init                        # asks which API, key and model to use
 
 Without arguments, in a terminal, a guided menu asks what it needs and shows the command.
 """
@@ -22,9 +22,9 @@ import shlex
 import sys
 from pathlib import Path
 
-from . import __version__, agent, analyze, batch, checks, config
+from . import __version__, agent, analyze, batch, checks, config, wizard
 from . import challenges as C
-from .console import BLUE, BOLD, GREEN, GREY, RED, c, tilde
+from .console import BLUE, BOLD, GREEN, GREY, RED, YELLOW, c, tilde
 
 
 LEGAL = """vibespice {version} (code: {code})
@@ -49,7 +49,11 @@ def list_challenges(prog: str) -> None:
             "sees them).", GREY))
 
 
-def init(prog: str) -> int:
+def init(prog: str, template: bool) -> int:
+    """In a terminal, the questions (wizard.py); otherwise, or with --template, the
+    commented template."""
+    if not template and sys.stdin.isatty() and sys.stdout.isatty():
+        return wizard.run(prog)
     path, created = config.init()
     if not created:
         print(f"The configuration file already exists: {tilde(path)}")
@@ -91,6 +95,7 @@ MENU = [
      ["bench", "{challenge}", "--repeat", "{times}", "--time-limit", "{time}"]),
     ("Analyze the saved runs", ["analyze"]),
     ("Local test without AI (self-test)", ["selftest"]),
+    ("Set up a model or API (first time, or to add another)", ["init"]),
 ]
 
 
@@ -98,6 +103,8 @@ def menu(prog: str, ask=input) -> list[str] | None:
     """No arguments and in a terminal: guided menu that shows the command it will run."""
     print(c("vibespice — what do you want to do?", BOLD))
     print(c(f"  {__version__} · AGPL-3.0-only · no warranty ({prog} --version)", GREY))
+    if not config.config_file().exists():
+        print(c(f"  First time? Choose {len(MENU)} to set up the model and API.", YELLOW))
     for i, (text, _) in enumerate(MENU, 1):
         print(f"  {i}. {text}")
     print(c(f"  0. Quit   (all commands: {prog} -h)", GREY))
@@ -184,7 +191,11 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
     sub.add_parser("selftest", help="local test without AI: ngspice, tools and verifiers")
     a = sub.add_parser("analyze", help="statistics of the saved runs")
     analyze.add_arguments(a)
-    sub.add_parser("init", help="create the configuration file (it never overwrites it)")
+    i = sub.add_parser("init", help="set up which model and API to use (asks, or adds a "
+                                    "profile if the file exists)")
+    i.add_argument("--template", action="store_true",
+                   help="just write the commented template, without questions (never "
+                        "overwrites)")
     return p
 
 
@@ -223,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         p.print_help()
         return 0
     if args.command == "init":
-        return init(prog)
+        return init(prog, args.template)
     settings = config.load(getattr(args, "profile", None))
     agent.configure(settings)
     if args.command == "selftest":
