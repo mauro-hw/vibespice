@@ -11,9 +11,21 @@ First public version, planned as 0.1.0.
 
 ### Added
 
-- `vibespice run`: iterative agent that gives a task to a model through the Open WebUI API
-  and runs ngspice locally until the model gives a final answer. The task can come from
-  the command line, a file or standard input.
+- `vibespice run`: iterative agent that gives a task to a model and runs ngspice locally
+  until the model gives a final answer. The task can come from the command line, a file
+  or standard input.
+- Providers, one per profile: `anthropic` (the Claude API, over plain HTTP), `openai` (any
+  OpenAI-compatible API: OpenAI, OpenRouter, Ollama, vLLM, LM Studio…) and `openwebui`.
+  With Claude: the conversation goes back exactly as it came, automatic prompt caching,
+  `--think` as the effort level (`yes` = `high`), handling of declined requests and the
+  server-side fallback model on the models that offer it. Keys can also come from
+  `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. `vibespice init` now starts with a Claude profile
+  and commented examples for the others.
+- Retries, up to 4, for rate limits (429), busy servers (529, 503…) and dropped connections,
+  honoring `retry-after`.
+- Every log and `summary.csv` row record the provider, the total input tokens and the cached
+  ones. A copy installed with pipx from GitHub records the commit it was installed from, and
+  `--version` shows it.
 - `vibespice bench`: challenges whose final answer is verified independently by
   re-simulating it. Without IDs, lists them.
 - Other commands: `check` (connection, model and tool calls), `status` (models loaded on
@@ -40,7 +52,8 @@ First public version, planned as 0.1.0.
   challenge and configuration, optionally split by code version (`--by-version`).
 - Traceability: `--version`, and every log and `summary.csv` row record the version and
   the git commit of the code (`+changes` when there were uncommitted changes).
-- `selftest` and `tests/run_tests.py` (end-to-end tests against a fake Open WebUI).
+- `selftest` and `tests/run_tests.py` (end-to-end tests against a fake LLM server that
+  speaks the three APIs).
 - Guided menu when run without arguments in a terminal.
 - AGPL-3.0-only license, with a `NOTICE` that must be kept (an additional term on
   attribution, under section 7(b)) and SPDX headers in every source file. `--version`

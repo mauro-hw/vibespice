@@ -25,7 +25,15 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fake_server as fs  # noqa: E402
 
-# (scenario, agent arguments, texts that must appear in the output)
+# Providers other than Open WebUI ({url} is the fake server; None removes the variable)
+CLAUDE = {"VIBESPICE_PROVIDER": "anthropic", "VIBESPICE_URL": "{url}",
+          "VIBESPICE_MODEL": "claude-opus-5-5"}
+HAIKU = dict(CLAUDE, VIBESPICE_MODEL="claude-haiku-4-5")
+OPENAI = {"VIBESPICE_PROVIDER": "openai", "VIBESPICE_URL": "{url}/v1",
+          "VIBESPICE_MODEL": "gpt-test"}
+
+# (scenario, agent arguments, texts that must appear in the output — or must not, with a
+# leading "!" — and, optionally, environment variables for that run)
 CASES = [
     ("challenge2", ["check"], ["All good", "native mode works"]),
     ("challenge2", ["bench", "2", "--show-thinking"], ["Result: PASS", "💭"]),
@@ -71,6 +79,48 @@ CASES = [
     # bench without IDs lists the challenges; an unknown ID fails before connecting
     ("challenge2", ["bench"], ["Available challenges", "Warm-up"]),
     ("challenge2", ["bench", "9"], ["No challenge '9'"]),
+    ("busy", ["bench", "0"], ["HTTP 429", "retrying in 0 s (1/4)", "HTTP 503", "(2/4)",
+                              "Result: PASS"]),
+    # Claude API: history kept as it came, tool results together, effort, caching, fallbacks
+    ("challenge2", ["check"],
+     ["2. Claude API", "Claude Opus 5.5: context 1000000",
+      "reasoning (--think): yes, low, medium, high, xhigh, max · yes = high",
+      "fallback model Anthropic recommends", "native mode works", "All good"], CLAUDE),
+    ("challenge7", ["bench", "7"],
+     ["anthropic · model claude-opus-5-5 · reasoning: high", "cached)", "Result: PASS",
+      "!possible context truncation", "!context:"], CLAUDE),
+    ("invents", ["bench", "6", "--think", "medium"], ["reasoning: medium", "Result: PASS"],
+     CLAUDE),
+    ("challenge6", ["bench", "6", "--show-thinking"], ["💭", "Result: PASS"], CLAUDE),
+    ("busy", ["bench", "0", "--think", "low"],
+     ["HTTP 429", "retrying in 0 s (1/4)", "HTTP 529", "(2/4)", "Result: PASS"], CLAUDE),
+    ("refusal", ["bench", "0"],
+     ["the model declined to answer (category: cyber)", "state: refusal", "Result: FAIL"],
+     CLAUDE),
+    ("fallback", ["run", "Design a 12 V to 5 V divider"],
+     ["claude-opus-5-5 declined; claude-opus-5 continued", "Result: UNVERIFIED"], CLAUDE),
+    ("challenge2", ["bench", "0", "--think", "no"], ["claude-opus-5-5 always reasons"], CLAUDE),
+    ("challenge2", ["bench", "0", "--num-ctx", "8192"],
+     ["--num-ctx only applies to Open WebUI"], CLAUDE),
+    ("challenge2", ["status"], ["status is only available with Open WebUI"], CLAUDE),
+    ("cold", ["bench", "0"], ["reasoning: yes", "Result: PASS"], HAIKU),
+    ("challenge2", ["bench", "0", "--think", "low"],
+     ["claude-haiku-4-5 does not support --think low. Options: yes, no."], HAIKU),
+    ("challenge2", ["check"], ["HTTP 401", "Claude Console"],
+     dict(CLAUDE, VIBESPICE_API_KEY="sk-ant-wrong")),
+    ("cold", ["check"], ["2. Claude API", "ANTHROPIC_API_KEY", "All good"],
+     dict(CLAUDE, VIBESPICE_API_KEY=None, ANTHROPIC_API_KEY="sk-test")),
+    # Any OpenAI-compatible API
+    ("challenge2", ["check"], ["2. OpenAI-compatible API", "native mode works", "All good"],
+     OPENAI),
+    ("challenge7", ["bench", "7"], ["openai · model gpt-test", "Result: PASS"], OPENAI),
+    ("challenge2", ["bench", "2", "--think", "high", "--show-thinking"],
+     ["reasoning: high", "💭", "Result: PASS"], OPENAI),
+    ("busy", ["bench", "0"], ["HTTP 429", "HTTP 503", "Result: PASS"], OPENAI),
+    ("challenge2", ["bench", "0", "--think", "no"], ["no standard way to turn reasoning off"],
+     OPENAI),
+    ("nokey", ["bench", "0"], ["Result: PASS"], dict(OPENAI, VIBESPICE_API_KEY=None)),
+    ("challenge2", ["bench", "0", "--model", "nope"], ["HTTP 404", "does not exist"], OPENAI),
 ]
 
 
@@ -152,8 +202,9 @@ def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="vibespice_tests_"))
     (tmp / "task.txt").write_text("Design a divider that gives 5 V from 12 V.\n",
                                   encoding="utf-8")
-    # Never the developer's configuration or logs: their own folders, and no VIBESPICE_*
-    env = {k: v for k, v in os.environ.items() if not k.startswith("VIBESPICE_")}
+    # Never the developer's configuration, logs or keys: their own folders, no VIBESPICE_*
+    env = {k: v for k, v in os.environ.items() if not k.startswith("VIBESPICE_")
+           and k not in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY")}
     env.update(NO_COLOR="1", VIBESPICE_NO_NOTIFY="1", PYTHONPATH=str(ROOT),
                XDG_CONFIG_HOME=str(tmp / "config"), XDG_DATA_HOME=str(tmp / "data"),
                VIBESPICE_API_KEY=fs.KEY, VIBESPICE_MODEL=fs.MODEL,
@@ -166,14 +217,21 @@ def main() -> int:
     failures += report("--version", rc == 0 and out.startswith("vibespice ")
                        and "AGPL-3.0-only" in out and "NO WARRANTY" in out, out)
 
-    for scenario, args, expected in CASES:
+    for scenario, args, expected, *extra in CASES:
         srv, url = fs.start_in_background(scenario)
+        run_env = dict(env, VIBESPICE_URL=url)
+        for k, v in (extra[0] if extra else {}).items():
+            if v is None:
+                run_env.pop(k, None)
+            else:
+                run_env[k] = v.format(url=url)
         try:
-            rc, out = vibespice(args, dict(env, VIBESPICE_URL=url), tmp)
+            rc, out = vibespice(args, run_env, tmp)
         finally:
             srv.shutdown()
-        missing = [e for e in expected if e not in out]
-        failures += report(f"{scenario:10s} {' '.join(args)}",
+        missing = [e for e in expected if (e[1:] in out if e.startswith("!") else e not in out)]
+        name = (run_env.get("VIBESPICE_PROVIDER") or "")[:9]
+        failures += report(f"{scenario:10s} {name + ' ' if name else ''}{' '.join(args)}",
                            not missing and "Traceback" not in out, out, missing)
 
     # The log analysis must understand what the tests left behind

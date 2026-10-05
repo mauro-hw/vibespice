@@ -6,10 +6,10 @@ on this repository.
 ## What this is
 
 vibespice is an agent that designs and simulates analog circuits from a prompt
-(`vibespice run`). It talks to a language model through the Open WebUI API and runs ngspice
-locally, in a loop, until the model gives a final answer. It also has a benchmark
-(`vibespice bench`): challenges whose answers are verified independently by re-simulating
-them.
+(`vibespice run`). It talks to a language model through its API (Claude, any
+OpenAI-compatible API or Open WebUI) and runs ngspice locally, in a loop, until the model
+gives a final answer. It also has a benchmark (`vibespice bench`): challenges whose answers
+are verified independently by re-simulating them.
 
 ## Layout
 
@@ -20,7 +20,11 @@ command once installed):
   `analyze`) and the guided menu. Nothing else parses arguments.
 - `vibespice/config.py`: the configuration file (profiles), environment variables and the
   logs folder, always outside the repository.
-- `vibespice/agent.py`: Open WebUI client, agent loop, logs and verification of one run.
+- `vibespice/agent.py`: agent loop, logs and verification of one run.
+- `vibespice/providers/`: one module per API (`anthropic.py`, `openai_chat.py` for Open
+  WebUI and OpenAI-compatible APIs) behind a common interface in `base.py`: `Provider`
+  (requests, retries, reasoning levels, `check` details) and the `Conversation` it creates
+  (the messages in the API's own format).
 - `vibespice/batch.py`: running jobs one after another, time limits and estimates.
 - `vibespice/checks.py`: `check` (connection) and `selftest` (tools and verifiers, no AI).
 - `vibespice/console.py`: terminal output, notification and keeping the computer awake.
@@ -29,7 +33,8 @@ command once installed):
 - `vibespice/challenges.py`: challenges, verifiers and reference answers (correct and wrong).
 - `vibespice/analyze.py`: statistics of `logs/` (read-only; the tests use it too).
 - `pyproject.toml`: package metadata. No runtime dependencies.
-- `tests/`: fake Open WebUI with a scripted "model" and end-to-end tests.
+- `tests/`: a fake LLM server that speaks the three APIs (Open WebUI, OpenAI-compatible
+  and Claude), with a scripted "model", and end-to-end tests.
 - `CHANGELOG.md`: what changed in each version.
 
 ## Rules
@@ -61,6 +66,14 @@ command once installed):
   contains simulation results, declare them in `measured` (the agent requires them to come
   from the model's own simulations), and in `derived` the ones that are the % change of a
   quantity between two simulations.
+- **The agent loop only uses the provider interface.** Anything specific to one API (its
+  message format, reasoning parameters, error hints) goes in its provider, and a new API
+  is a new provider plus its dialect in `tests/fake_server.py`.
+- **The conversation is append-only.** Never edit or drop an earlier turn: the Claude API
+  rejects a history whose assistant turns changed (thinking blocks included), and the fake
+  server checks it.
+- **Tests never use real keys.** `tests/run_tests.py` drops `ANTHROPIC_API_KEY` and
+  `OPENAI_API_KEY` along with every `VIBESPICE_*` variable.
 - **Do not change the default `--num-ctx auto`.** A request with a different `num_ctx`
   makes Ollama reload the model, which hurts everyone else sharing the server.
 - **Changes to the tool outputs or the prompts change model behavior.** Mention them in the

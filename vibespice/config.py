@@ -5,7 +5,8 @@
 Configuration and where things are saved, always outside the code folder.
 
 - Configuration: ~/.config/vibespice/config.toml (or $XDG_CONFIG_HOME/vibespice/, or the
-  file in VIBESPICE_CONFIG). One profile per server or API; `vibespice init` creates it.
+  file in VIBESPICE_CONFIG). One profile per server or API (provider anthropic, openai or
+  openwebui); `vibespice init` creates it.
 - Logs: ~/.local/share/vibespice/logs (or $XDG_DATA_HOME/vibespice/logs), logs_dir in the
   file, or VIBESPICE_LOGS.
 
@@ -21,10 +22,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .console import tilde
+from .providers import CLASSES
 
-PROVIDERS = ("openwebui",)
 DEFAULT_TIMEOUT = 900.0          # seconds per model reply
-EXAMPLE_KEY = "sk-paste-your-key-here"
+EXAMPLE_KEY = "sk-ant-paste-your-key-here"
 
 # Environment variable → key of the profile (or of the file, for ngspice and logs_dir)
 ENV = {
@@ -36,15 +37,21 @@ ENV = {
     "VIBESPICE_TIMEOUT": "timeout",
 }
 TOP_KEYS = {"default_profile", "logs_dir", "ngspice", "profiles"}
-PROFILE_KEYS = {"provider", "url", "api_key", "model", "ca", "timeout"}
+PROFILE_KEYS = {"provider", "url", "api_key", "model", "ca", "timeout", "max_tokens",
+                "fallbacks"}
+KEY_HELP = {
+    "anthropic": "create one in the Claude Console (https://platform.claude.com) and paste "
+                 "it (it starts with sk-ant-), or set ANTHROPIC_API_KEY",
+    "openwebui": "create one in Open WebUI, Settings > Account > API Keys (it starts with sk-)",
+}
 
 TEMPLATE = f'''# vibespice configuration.
-# Keep this file private: it holds your API key (chmod 600).
-# Environment variables take priority over it: VIBESPICE_PROFILE, VIBESPICE_URL,
-# VIBESPICE_API_KEY, VIBESPICE_MODEL, VIBESPICE_LOGS...
+# Keep this file private: it can hold API keys (chmod 600).
+# Environment variables take priority over it: VIBESPICE_PROFILE, VIBESPICE_PROVIDER,
+# VIBESPICE_URL, VIBESPICE_API_KEY, VIBESPICE_MODEL, VIBESPICE_LOGS...
 
 # Profile used when you don't pass --profile
-default_profile = "main"
+default_profile = "claude"
 
 # Optional: where the logs go (default: ~/.local/share/vibespice/logs)
 # logs_dir = "~/vibespice-logs"
@@ -52,26 +59,50 @@ default_profile = "main"
 # Optional: the ngspice executable, if it is not in your PATH
 # ngspice = "/usr/local/bin/ngspice"
 
-# One profile per server or API. For now the only provider is "openwebui".
-[profiles.main]
-provider = "openwebui"
-# Your Open WebUI server, with http:// or https://
-url = "http://localhost:3000"
-# Settings > Account > API Keys in Open WebUI (starts with sk-)
-api_key = "{EXAMPLE_KEY}"
-# The model id as the server lists it ("vibespice check" shows them)
-model = ""
-# Optional: CA certificate if your server uses its own HTTPS certificate
-# ca = "/path/to/your-ca.pem"
-# Optional: seconds to wait for each model reply
-# timeout = 900
+# One profile per server or API. provider is "anthropic" (the Claude API), "openai" (any
+# OpenAI-compatible API) or "openwebui".
 
-# Another server: copy the block with another name and use --profile NAME
-# [profiles.other]
-# provider = "openwebui"
-# url = "https://llm.example.com"
+# The Claude API. Create a key in the Claude Console (https://platform.claude.com); the API
+# is paid per use, separately from a Claude Pro or Max subscription.
+[profiles.claude]
+provider = "anthropic"
+# Paste your key (it starts with sk-ant-), or leave it empty and set ANTHROPIC_API_KEY
+api_key = "{EXAMPLE_KEY}"
+model = "claude-opus-5-5"
+
+# OpenAI or any OpenAI-compatible API. url is the API's base (it usually ends in /v1). If
+# api_key is empty, OPENAI_API_KEY is used; local servers need no key.
+# [profiles.openai]
+# provider = "openai"
+# url = "https://api.openai.com/v1"
 # api_key = "sk-..."
-# model = "qwen3:32b"
+# model = ""                      # an id the API lists ("vibespice check" shows them)
+
+# OpenRouter: one key for many models
+# [profiles.openrouter]
+# provider = "openai"
+# url = "https://openrouter.ai/api/v1"
+# api_key = "sk-or-..."
+# model = ""
+
+# Ollama on this computer, through its OpenAI-compatible API (no key)
+# [profiles.local]
+# provider = "openai"
+# url = "http://localhost:11434/v1"
+# model = ""                      # a name from "ollama list"
+
+# Open WebUI (Settings > Account > API Keys; an admin key also shows the loaded models)
+# [profiles.office]
+# provider = "openwebui"
+# url = "http://localhost:3000"
+# api_key = "sk-..."
+# model = ""
+
+# Optional in any profile:
+# ca = "/path/to/your-ca.pem"     # CA certificate, for a server with its own HTTPS certificate
+# timeout = 900                   # seconds to wait for each model reply
+# max_tokens = 16000              # cap on each reply (the Claude API needs one: 16000 by default)
+# fallbacks = false               # Claude: don't hand a declined request to a fallback model
 '''
 
 
@@ -101,6 +132,8 @@ class Settings:
     model: str = ""
     ca: str = ""
     timeout: float = DEFAULT_TIMEOUT
+    max_tokens: int | None = None
+    fallbacks: bool = True
     ngspice: str = "ngspice"
     logs: Path = field(default_factory=default_logs_dir)
     from_env: list[str] = field(default_factory=list)
@@ -154,8 +187,12 @@ def load(profile: str | None = None) -> Settings:
             values[key] = os.environ[variable]
             s.from_env.append(variable)
     s.provider = _text(values.get("provider")) or "openwebui"
-    s.url = _text(values.get("url")).rstrip("/")
+    cls = CLASSES.get(s.provider)
+    s.url = (_text(values.get("url")) or (cls.default_url if cls else "")).rstrip("/")
     s.api_key = _text(values.get("api_key"))
+    if not s.api_key and cls and cls.key_env and os.environ.get(cls.key_env):
+        s.api_key = os.environ[cls.key_env].strip()
+        s.from_env.append(cls.key_env)
     s.model = _text(values.get("model"))
     s.ca = str(Path(_text(values["ca"])).expanduser()) if _text(values.get("ca")) else ""
     try:
@@ -164,23 +201,34 @@ def load(profile: str | None = None) -> Settings:
             raise ValueError
     except (TypeError, ValueError):
         s.problems.append(f"timeout must be a number of seconds (now: {values.get('timeout')})")
+    if values.get("max_tokens") not in (None, ""):
+        try:
+            s.max_tokens = int(values["max_tokens"])
+            if s.max_tokens <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            s.problems.append(f"max_tokens must be a whole number (now: {values['max_tokens']})")
+    if "fallbacks" in values:
+        if isinstance(values["fallbacks"], bool):
+            s.fallbacks = values["fallbacks"]
+        else:
+            s.problems.append(f"fallbacks must be true or false (now: {values['fallbacks']})")
 
     s.ngspice = os.environ.get("VIBESPICE_NGSPICE") or _text(data.get("ngspice")) or "ngspice"
     logs = os.environ.get("VIBESPICE_LOGS") or _text(data.get("logs_dir"))
     s.logs = Path(logs).expanduser() if logs else default_logs_dir()
     s.from_env += [v for v in ("VIBESPICE_NGSPICE", "VIBESPICE_LOGS") if os.environ.get(v)]
 
-    if s.provider not in PROVIDERS:
-        s.problems.append(f"Unknown provider '{s.provider}'. Supported: {', '.join(PROVIDERS)}")
+    if not cls:
+        s.problems.append(f"Unknown provider '{s.provider}'. Supported: {', '.join(CLASSES)}")
     if not s.url:
         s.problems.append("url is missing: the address of your server, with http:// or https://")
     elif not s.url.startswith(("http://", "https://")):
         s.problems.append(f"url must start with http:// or https:// (now: {s.url})")
-    if not s.api_key:
-        s.problems.append("api_key is missing: create one in Open WebUI, Settings > Account > "
-                          "API Keys (it starts with sk-)")
-    elif s.api_key == EXAMPLE_KEY:
+    if "paste-your-key" in s.api_key:
         s.problems.append("api_key still has the example value: paste your own key")
+    elif not s.api_key and cls and cls.key_required:
+        s.problems.append(f"api_key is missing: {KEY_HELP.get(s.provider, 'paste your key')}")
     return s
 
 

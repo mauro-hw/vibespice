@@ -4,8 +4,8 @@ An agent that designs and simulates analog circuits from a prompt, with a langua
 and a real SPICE simulator (ngspice).
 
 You describe what you need, for example *"design a 24 V to 3.3 V divider with E12 resistors
-and give me the worst case with 5 % tolerance"*. The model thinks on your LLM server and
-vibespice runs ngspice on your computer. Every time the model asks for a simulation,
+and give me the worst case with 5 % tolerance"*. The model thinks on a cloud API (Claude,
+OpenAI, OpenRouter…) or on your own server, and vibespice runs ngspice on your computer. Every time the model asks for a simulation,
 vibespice runs it and sends the result back, in a loop, until the model gives its final
 answer. Everything is logged: the reasoning, every netlist and every result.
 
@@ -13,23 +13,25 @@ It also includes a **benchmark**: eight challenges whose answers vibespice **che
 own**, by simulating again, to measure how well your model does this job.
 
 ```
- LLM (server)  ⇄  Open WebUI (API)  ⇄  vibespice (your computer)  ⇄  ngspice
+ LLM (Claude API, OpenAI-compatible API or Open WebUI)  ⇄  vibespice (your computer)  ⇄  ngspice
 ```
 
 It uses only the Python standard library, so there is nothing else to install. It is tested
-with Python 3.11 to 3.14 and ngspice 42 and 47, on Linux.
+with Python 3.11 to 3.14 and ngspice 42 and 47, on Linux; it should work on macOS, and on
+Windows through WSL.
 
 | File | What it is for |
 |---|---|
 | `vibespice/cli.py` | The commands (`run`, `bench`, `check`…) and the guided menu |
-| `vibespice/agent.py` | The agent: connection, loop, logs and verification |
+| `vibespice/agent.py` | The agent: loop, logs and verification |
+| `vibespice/providers/` | How it talks to each API: Claude, OpenAI-compatible and Open WebUI |
 | `vibespice/tools.py` | What the model can use: `simulate`, `analyze_tolerances`, `standard_values`, `calculate` |
 | `vibespice/challenges.py` | The challenges, how they are verified and their solutions (the model never sees them) |
 | `vibespice/analyze.py` | Statistics of the saved runs: pass rate, times, tools, measurements, unmeasured results and signs that it simulates another circuit, per challenge and configuration |
 | `vibespice/config.py` | The configuration file, its profiles and where the logs go (section 6) |
 | `vibespice/batch.py`, `checks.py`, `console.py` | Batches and time limits; `check` and `selftest`; terminal output |
 | `pyproject.toml` | Package metadata, so it can be installed with pip or pipx |
-| `tests/` | Tests without a server: a fake Open WebUI with a scripted "model" |
+| `tests/` | Tests without a server: a fake LLM server, with a scripted "model", that speaks the three APIs |
 | `AGENTS.md` | Project rules for contributors and coding agents |
 | `CHANGELOG.md` | What changed in each version |
 | `LICENSE`, `NOTICE` | License (AGPL-3.0-only) and attribution notice |
@@ -44,39 +46,33 @@ with Python 3.11 to 3.14 and ngspice 42 and 47, on Linux.
   or `brew install ngspice` (macOS).
 - pipx, to install vibespice as a command: `sudo dnf install pipx`, `sudo apt install pipx`
   or `brew install pipx`.
-- An [Open WebUI](https://github.com/open-webui/open-webui) server with a model served by
-  Ollama that supports tool calling. For now the agent talks to Open WebUI only.
+- A model that can call tools, reachable through an API. Any of these:
+  - **the Claude API**: create a key in the [Claude Console](https://platform.claude.com).
+    It is paid per use, separately from a Claude Pro or Max subscription, and new accounts
+    get a little free credit to try it;
+  - **OpenAI or any OpenAI-compatible service** (OpenRouter, for example), with its key;
+  - **a model on your own computer or network**: [Ollama](https://ollama.com) (through its
+    OpenAI-compatible API, no key) or [Open WebUI](https://github.com/open-webui/open-webui).
 
-**b) Turn on API keys in Open WebUI.** As an admin, go to *Admin Panel → Settings →
-Authentication* (*User Access* section) and turn on **Enable API Keys**. Click *Save* at the
-bottom of the page. If *API Key Endpoint Restrictions* shows up, leave it off: if you turn it
-on, you will have to allow `/api/models`, `/api/chat/completions`, `/ollama/api/ps`,
-`/ollama/api/version` and `/ollama/api/show`.
-
-**c) Create your key.** Go to your user, *Settings → Account → API Keys*, and create one. It
-starts with `sk-`.
-
-> An admin key lets the agent see which model is loaded and with which context (`status`,
-> `check`) and check the reasoning levels of each model. Without one, everything else still
-> works. The key acts on your behalf, so do not share it.
-
-**d) Install and configure.**
+**b) Install and configure.**
 
 ```bash
 pipx install git+https://github.com/mauro-hw/vibespice-app
 vibespice init                             # creates ~/.config/vibespice/config.toml
-nano ~/.config/vibespice/config.toml       # fill in url, api_key and model
+nano ~/.config/vibespice/config.toml       # paste your key
 ```
 
-If you don't know the exact model id yet, leave `model` empty: step f lists the models on
-your server. To update vibespice later: `pipx upgrade vibespice`. Section 6 explains the
-file, its profiles and where the logs go.
+The file comes ready for the Claude API: paste your key (or leave `api_key` empty and set
+`ANTHROPIC_API_KEY`). It also has commented examples for OpenAI, OpenRouter, Ollama and Open
+WebUI; section 6 explains each one. If you don't know the exact model id, leave `model`
+empty: step d lists the models available to you. To update vibespice later:
+`pipx upgrade vibespice`.
 
 > **Without installing.** From a clone (`git clone https://github.com/mauro-hw/vibespice-app`
 > and `cd vibespice-app`), type `python3 -m vibespice` wherever this README says
 > `vibespice`.
 
-**e) Local test, without AI.** Checks your ngspice and the verifiers:
+**c) Local test, without AI.** Checks your ngspice and the verifiers:
 
 ```bash
 vibespice selftest
@@ -85,8 +81,7 @@ vibespice selftest
 **Can't remember the commands?** Run `vibespice` with nothing else: a guided menu
 asks what it needs and shows you the exact command before running it.
 
-**f) Connection test.** Checks ngspice, the key, the model, the loaded context, a chat and a
-tool call:
+**d) Connection test.** Checks ngspice, the key, the model, a chat and a tool call:
 
 ```bash
 vibespice check
@@ -95,12 +90,18 @@ vibespice check
 If step 5 says that native mode works, you are ready. If not, use `--mode text` (see
 section 5).
 
-**g) First task and first challenge:**
+**e) First task and first challenge:**
 
 ```bash
 vibespice run "Design a 12 V to 5 V divider with E24 resistors"
 vibespice bench 0
 ```
+
+> **What it costs with a paid API.** Every step is a request that carries the whole
+> conversation so far, so a run costs from a few cents to a couple of dollars, depending on
+> the model and on how many steps it takes. With the Claude API, vibespice turns on prompt
+> caching, which makes the repeated part much cheaper. Each run ends with its token count,
+> and `summary.csv` keeps it for every run (section 2).
 
 ---
 
@@ -129,8 +130,8 @@ of forcing an answer.
   you see **what it gets wrong**: mental arithmetic, `1M` (milli) instead of `1MEG`, the sign
   of the current, shortcuts without simulating…
 - **`.json`**: the raw data of the same run.
-- **`summary.csv`**: one row per run (task or challenge, PASS/FAIL, steps, time, tokens,
-  version and code commit).
+- **`summary.csv`**: one row per run (provider, model, task or challenge, PASS/FAIL, steps,
+  time, tokens, version and code commit).
 
 ---
 
@@ -237,8 +238,8 @@ the model can correct itself, which is exactly what we want to see.
 |---|---|
 | `run "task"` / `run --file F` | Gives the model a task and lets it simulate until it answers (section 2) |
 | `bench [ID…] / bench all` | Runs challenges with verification; without IDs, lists them (section 3) |
-| `check` | Checks ngspice, the key, the model, the loaded context, a chat and a tool call |
-| `status` | Which model Ollama has loaded, with which context and how much VRAM it uses (admin key) |
+| `check` | Checks ngspice, the key, the model, a chat and a tool call (and, with Open WebUI, the loaded context) |
+| `status` | Open WebUI only: which model Ollama has loaded, with which context and how much VRAM it uses (admin key) |
 | `selftest` | Local test without AI: ngspice, the tools and the verifiers |
 | `analyze` | Statistics of the saved runs (section 3) |
 | `init` | Creates the configuration file; it never overwrites it (section 6) |
@@ -258,17 +259,17 @@ Options of `run` and `bench` (`--repeat` and `--time-limit` are only for `bench`
 
 | Option | Effect |
 |---|---|
-| `--think yes/no/level` | Turns reasoning on or off (on by default). Models with levels also accept the level: qwen3.8 accepts `low`, `medium` and `xhigh`, and with `yes` it uses its default level (`medium`). The agent checks on the server what each model supports. It uses the sampling parameters each family's vendor recommends (qwen3: 0.6 / 0.95 / 20 with reasoning and 0.7 / 0.8 / 20 without; qwen3.8: temperature 1.0 with reasoning and 0.7 with `presence_penalty` 1.5 without); for a family it does not know, those of its Modelfile |
+| `--think yes/no/level` | How much the model reasons (`yes` by default). With Claude, the level is the effort: `low`, `medium`, `high`, `xhigh` or `max`, and `yes` means `high`; Claude Opus 5.5 always reasons, so `no` is not accepted. With Open WebUI, the model's own levels (qwen3.8: `low`, `medium`, `xhigh`; `yes` is its default level). With an OpenAI-compatible API, the level goes as `reasoning_effort`. `check` shows what each model accepts (section 6) |
 | `--profile NAME` | Uses another profile of the configuration file (section 6). Also for `check` and `status` |
-| `--model M` | Uses another Open WebUI model or preset (default: `model` in the profile). Before the first batch with a new model, run `check --model M`: it shows which reasoning levels it supports, whether it calls the tools correctly and with which context the server loads it |
+| `--model M` | Uses another model of the same provider (default: `model` in the profile). Before the first batch with a new model, run `check --model M`: it shows which reasoning levels it supports and whether it calls the tools correctly |
 | `--mode native/text` | *native*: tool calls through the API (`tool_calls`). *text*: the model writes `<tool_call>{…}</tool_call>` in its reply. The agent understands both formats, and even a "native" call that slips through as text |
 | `--repeat N` | Repeats and summarizes the pass rate |
 | `--time-limit T` | Maximum batch time (`45m`, `2h`, `1h30`): does not start an iteration that cannot finish in time and tells you when it will end |
 | `--max-steps N` | Cap on model replies (20 by default) |
-| `--num-ctx auto/N` | *auto* (default) uses the context the server already has the model loaded with. See the note below |
+| `--num-ctx auto/N` | Open WebUI only. *auto* (default) uses the context the server already has the model loaded with. See the note below |
 | `--show-thinking` | Shows the reasoning on screen (it is always in the log) |
 
-**⚠ Sharing a server with other people:**
+**⚠ Sharing your own server with other people** (Open WebUI or Ollama):
 - **Context.** If the agent asked for a different `num_ctx` from the one other users get,
   Ollama would reload the model every time your requests alternate. That is why `auto` copies
   the one already loaded. Change `--num-ctx` only if you know nobody else is using the model.
@@ -281,45 +282,76 @@ Options of `run` and `bench` (`--repeat` and `--time-limit` are only for `bench`
 
 ---
 
-## 6. Configuration and where things are saved
+## 6. Configuration, providers and where things are saved
 
 Nothing is saved in the code folder, so updating vibespice never touches your settings or
-your logs, and the key can never end up in a commit.
+your logs, and a key can never end up in a commit.
 
 | What | Where |
 |---|---|
-| Configuration, with your key | `~/.config/vibespice/config.toml` (`vibespice init` creates it, readable only by you) |
+| Configuration, with your keys | `~/.config/vibespice/config.toml` (`vibespice init` creates it, readable only by you) |
 | Logs: one `.md` and one `.json` per run, and `summary.csv` | `~/.local/share/vibespice/logs/` |
 
 The file has **one profile per server or API**, and `default_profile` says which one is used
 when you don't pass `--profile`:
 
 ```toml
-default_profile = "office"
+default_profile = "claude"
 
-[profiles.office]
-provider = "openwebui"
-url = "https://llm.example.com"
-api_key = "sk-…"
-model = "qwen3:32b"
+[profiles.claude]
+provider = "anthropic"
+api_key = "sk-ant-…"
+model = "claude-opus-5-5"
 
-[profiles.home]
-provider = "openwebui"
-url = "http://localhost:3000"
-api_key = "sk-…"
+[profiles.local]
+provider = "openai"
+url = "http://localhost:11434/v1"
 model = "qwen3:8b"
 ```
 
-`vibespice run --profile home "…"` uses the second one. For now the only provider is
-`openwebui`. Each profile can also set `ca` (your CA certificate, for a server with its own
-HTTPS certificate) and `timeout` (seconds to wait for each reply, 900 by default). Outside
-the profiles, `logs_dir` moves the logs and `ngspice` sets the path of the executable.
+`vibespice run --profile local "…"` uses the second one. The providers:
+
+| `provider` | For | `url` | `api_key` |
+|---|---|---|---|
+| `anthropic` | The Claude API | Not needed | From the Claude Console, or `ANTHROPIC_API_KEY` |
+| `openai` | OpenAI and any OpenAI-compatible API: OpenRouter, Ollama, vLLM, LM Studio, llama.cpp… | The API's base, usually ending in `/v1` (default: OpenAI's) | Its key, or `OPENAI_API_KEY`; local servers need none |
+| `openwebui` | Open WebUI, with its models served by Ollama | Your server | Your Open WebUI key |
+
+**Claude API.** vibespice keeps the conversation exactly as the API returns it, turns on
+prompt caching and sets the reasoning with the effort level (`--think`). Each reply is capped
+at `max_tokens` (16000 by default). If a model declines a request, the fallback model
+Anthropic recommends continues, on the models that offer it; `fallbacks = false` in the
+profile turns that off.
+
+**OpenAI-compatible APIs.** vibespice sends the standard chat format. `--think LEVEL` goes as
+`reasoning_effort`, if the server accepts it. For the qwen3 families it also sends the
+sampling their vendor recommends (temperature, top_p and presence_penalty).
+
+**Open WebUI.** Two steps on the server:
+1. As an admin, go to *Admin Panel → Settings → Authentication* (*User Access* section) and
+   turn on **Enable API Keys**. Click *Save* at the bottom of the page. If *API Key Endpoint
+   Restrictions* shows up, leave it off: if you turn it on, you will have to allow
+   `/api/models`, `/api/chat/completions`, `/ollama/api/ps`, `/ollama/api/version` and
+   `/ollama/api/show`.
+2. Go to your user, *Settings → Account → API Keys*, and create one. It starts with `sk-`.
+
+An admin key also lets vibespice see which model is loaded and with which context
+(`status`, `check`, `--num-ctx auto`) and read each model's reasoning levels. Without one,
+everything else still works. With Open WebUI, vibespice uses the sampling each model family's
+vendor recommends (qwen3: 0.6 / 0.95 / 20 with reasoning and 0.7 / 0.8 / 20 without;
+qwen3.8: temperature 1.0 with reasoning and 0.7 with `presence_penalty` 1.5 without); for a
+family it does not know, those of its Modelfile.
+
+**Other settings.** Any profile can set `ca` (your CA certificate, for a server with its own
+HTTPS certificate), `timeout` (seconds to wait for each reply, 900 by default) and
+`max_tokens`. Outside the profiles, `logs_dir` moves the logs and `ngspice` sets the path of
+the executable.
 
 **Environment variables** take priority over the file: `VIBESPICE_PROFILE`,
-`VIBESPICE_URL`, `VIBESPICE_API_KEY`, `VIBESPICE_MODEL`, `VIBESPICE_CA`,
-`VIBESPICE_TIMEOUT`, `VIBESPICE_LOGS` and `VIBESPICE_NGSPICE`. `VIBESPICE_CONFIG` points to
-another configuration file. With `VIBESPICE_URL` and `VIBESPICE_API_KEY` you don't even need
-the file.
+`VIBESPICE_PROVIDER`, `VIBESPICE_URL`, `VIBESPICE_API_KEY`, `VIBESPICE_MODEL`,
+`VIBESPICE_CA`, `VIBESPICE_TIMEOUT`, `VIBESPICE_LOGS` and `VIBESPICE_NGSPICE`.
+`VIBESPICE_CONFIG` points to another configuration file. With the provider, the model and a
+key in the environment you don't even need the file.
 
 ---
 
@@ -327,16 +359,21 @@ the file.
 
 | Symptom | Likely cause and fix |
 |---|---|
-| `HTTP 401` | Key copied wrong or regenerated (section 1c) |
-| `HTTP 403` | *Enable API Keys* off, *API Key Endpoint Restrictions* on, or a key without admin rights (section 1b) |
-| "Incomplete configuration" | It says what is missing and in which file. Without a file: `vibespice init` (section 1d) |
+| `HTTP 401` | Key copied wrong, regenerated or for another provider (section 6) |
+| `HTTP 402` | No credit left: add it in your provider's console (for Claude, the Claude Console). A Claude Pro or Max subscription does not include the API |
+| `HTTP 403` | The key has no permission for that model. With Open WebUI: *Enable API Keys* off, *API Key Endpoint Restrictions* on, or a key without admin rights (section 6) |
+| "Incomplete configuration" | It says what is missing and in which file. Without a file: `vibespice init` (section 1b) |
 | `HTTP 404` or "is not listed" | `url` is wrong, or `model` does not match the exact id (`check` lists the available ones) |
+| `HTTP 429`, `529` or `503` and "retrying" | Rate limit or busy server: vibespice waits and retries up to 4 times, as long as the server asks. If it still fails, wait a bit or lower the pace (fewer repetitions) |
 | "Can't connect" | Wrong IP or port, you are not on the server's network or a firewall is in the way. Try the same URL in a browser |
 | Certificate error (HTTPS) | Put the path of your CA's certificate in `ca`, in your profile |
 | "did not call the tool" in `check` | Use `--mode text` |
 | "No reply within 900 s" | Very long reasoning or an overloaded server. Raise `timeout` in your profile or use `--think no` |
-| "possible context truncation" | The conversation does not fit in the server's `num_ctx`. Raise it in the model's configuration (carefully, see section 5) |
+| "the reply was cut at max_tokens" | The model needed a longer reply: raise `max_tokens` in the profile |
+| "the model declined to answer" | The API's safety classifiers refused the request; the log says the category. Reword the task |
+| "possible context truncation" | With your own server: the conversation does not fit in its `num_ctx`. Raise it in the model's configuration (carefully, see section 5) |
 | `ngspice executable not found` | Install ngspice (section 1a) or set its path in `ngspice`, in the configuration file |
+| "does not support --think …" | That model does not have that reasoning level; the message lists the ones it has |
 | The self-test fails on some value | Please open an issue with the output: it may be a format change between ngspice versions |
 
 ---
@@ -345,8 +382,9 @@ the file.
 
 vibespice follows [Semantic Versioning](https://semver.org/). Every change is described in
 [CHANGELOG.md](CHANGELOG.md). Each run records in its log the version (`--version`) and the
-git commit of the code, with `+changes` if there were uncommitted changes, so results can
-always be traced back to the exact code that produced them.
+git commit of the code, with `+changes` if there were uncommitted changes (a copy installed
+with pipx from GitHub records the commit it was installed from), so results can always be
+traced back to the exact code that produced them.
 
 ---
 
