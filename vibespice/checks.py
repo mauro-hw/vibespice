@@ -5,18 +5,19 @@
 (vibespice selftest)."""
 from __future__ import annotations
 
+import json
 import time
 
 from . import challenges as C
 from . import config
 from . import tools as hs
-from .agent import (PROFILES, APIError, OWUIClient, calls_from_text, model_options,
-                    split_thinking, without_origin)
+from .agent import calls_from_text, without_origin
 from .batch import duration, fits_another
 from .console import BOLD, GREEN, RED, YELLOW, c, fmt_dur, shorten, tilde
+from .providers import APIError, Provider
 
 
-def check(client: OWUIClient | None, settings: config.Settings) -> int:
+def check(provider: Provider | None, settings: config.Settings) -> int:
     failures = 0
     print(c("1. ngspice", BOLD))
     v = hs.ngspice_version()
@@ -31,107 +32,85 @@ def check(client: OWUIClient | None, settings: config.Settings) -> int:
               "sudo dnf install ngspice or brew install ngspice) or set its path in ngspice, in "
               f"{tilde(settings.file)}.")
         failures += 1
-    if client is None:
+    if provider is None:
         return failures + 1
-    print(c("2. Open WebUI", BOLD))
+    print(c(f"2. {provider.label}", BOLD))
     print(f"  {tilde(settings.file)}" + (f" · profile '{settings.profile}'" if settings.profile
-                                         else " · environment variables only"))
+                                         else " · environment variables only")
+          + (f" · from the environment: {', '.join(settings.from_env)}" if settings.from_env
+             else ""))
     for w in settings.warnings:
         print(c(f"  ⚠ {w}", YELLOW))
-    print(f"  URL: {client.url} · key: {client.key[:5]}…{client.key[-3:]}")
+    key = f"{provider.key[:5]}…{provider.key[-3:]}" if len(provider.key) > 12 else \
+        ("set" if provider.key else "none")
+    print(f"  URL: {provider.url} · key: {key}")
     try:
-        mods = client.models()
+        mods = provider.models()
         print(f"  ✅ connected; {len(mods)} models visible to this key")
-        if not client.model:
+        if not provider.model:
             print(f"  ❌ no model chosen: copy one into model, in your profile. Models: "
                   f"{', '.join(mods[:15])}")
             return failures + 1
-        if client.model in mods:
-            print(f"  ✅ model '{client.model}' is available")
+        if provider.model in mods:
+            print(f"  ✅ model '{provider.model}' is available")
         else:
-            print(f"  ❌ '{client.model}' is not listed. Models: {', '.join(mods[:15])}")
+            print(f"  ❌ '{provider.model}' is not listed. Models: {', '.join(mods[:15])}")
             failures += 1
     except APIError as e:
         print(f"  ❌ {e}")
         return failures + 1
-    print(c("3. Ollama (through Open WebUI, needs an admin key)", BOLD))
-    try:
-        print(f"  Ollama {client.ollama_version()}")
-        loaded = client.ollama_ps()
-        if not loaded:
-            print("  No model loaded on the GPU right now.")
-        for m in loaded:
-            vram = (m.get("size_vram") or 0) / 1e9
-            print(f"  loaded: {m.get('name')} · context {m.get('context_length', '?')} tokens · "
-                  f"{vram:.1f} GB in VRAM · expires {str(m.get('expires_at', '?'))[:19]}")
-    except APIError as e:
-        print(f"  (not available: {shorten(str(e), 120)})")
-    try:
-        f = client.model_card()
-        det, info = f.get("details") or {}, f.get("model_info") or {}
-        ctx = next((v for k, v in info.items() if k.endswith(".context_length")), "?")
-        cap = f.get("capabilities") or []
-        th = f.get("thinking") or {}
-        levels = ", ".join("no" if v is False else "yes" if v is True else str(v)
-                           for v in th.get("values") or []) or "does not reason"
-        default = th.get("default")
-        print(f"  {client.model}: {det.get('parameter_size', '?')} "
-              f"{det.get('quantization_level', '')} · native context {ctx}"
-              f" · tools: {'yes' if 'tools' in cap else 'no'}"
-              f" · images: {'yes' if 'vision' in cap else 'no'}")
-        print(f"  reasoning (--think): {levels}"
-              + (f" · default {'yes' if default is True else default}" if default is not None
-                 else ""))
-        profile = next((pr for pr in PROFILES if client.model.startswith(pr)), None)
-        print("  sampling: " + (f"agent profile '{profile}'" if profile else
-                                "the Modelfile's (the agent does not know this family)"))
-    except APIError as e:
-        print(f"  (model card not available: {shorten(str(e), 120)})")
+    print(c(f"3. {provider.details_title}", BOLD))
+    for line in provider.details():
+        print(f"  {line}")
+    # The tests below use the least reasoning the model allows, if it can be chosen
+    think = provider.quick_think
+    if think is not None:
+        think, error = provider.resolve_think(think)
+        think = None if error else think
     print(c("4. Chat test", BOLD))
     try:
         t0 = time.perf_counter()
-        r = client.chat([{"role": "user", "content": "Reply with just the word: OK"}],
-                        options=model_options(client.model, False, None))
-        text, _ = split_thinking(r["choices"][0]["message"].get("content") or "")
-        if text:
-            print(f"  ✅ reply '{shorten(text, 60)}' in {fmt_dur(time.perf_counter() - t0)}")
+        reply = provider.chat(provider.conversation(None, "Reply with just the word: OK", None),
+                              think)
+        if reply.content:
+            print(f"  ✅ reply '{shorten(reply.content, 60)}' in "
+                  f"{fmt_dur(time.perf_counter() - t0)}")
         else:
             print("  ⚠ empty reply (the model answers but with no visible text)")
-    except (APIError, KeyError, IndexError) as e:
+    except APIError as e:
         print(f"  ❌ {e}")
         return failures + 1
     print(c("5. Tool call test (native mode)", BOLD))
     try:
         t0 = time.perf_counter()
-        r = client.chat([{"role": "user", "content": "What is 1234 * 5678? Use the calculate "
-                          "tool; do not compute it yourself."}],
-                        tools=[e for e in hs.SCHEMAS if e["function"]["name"] == "calculate"],
-                        options=model_options(client.model, False, None))
-        m = r["choices"][0]["message"]
-        tc = m.get("tool_calls") or []
-        text, _ = split_thinking(m.get("content") or "")
-        if tc:
-            print(f"  ✅ requested {tc[0]['function']['name']}"
-                  f"({tc[0]['function'].get('arguments')}) in "
-                  f"{fmt_dur(time.perf_counter() - t0)} → native mode works")
-        elif calls_from_text(text):
+        conv = provider.conversation(
+            None, "What is 1234 * 5678? Use the calculate tool; do not compute it yourself.",
+            [e for e in hs.SCHEMAS if e["function"]["name"] == "calculate"])
+        reply = provider.chat(conv, think)
+        if reply.tool_calls:
+            t = reply.tool_calls[0]
+            args = json.dumps(t.args, ensure_ascii=False) if isinstance(t.args, dict) else t.args
+            print(f"  ✅ requested {t.name}({args}) in {fmt_dur(time.perf_counter() - t0)} "
+                  "→ native mode works")
+        elif calls_from_text(reply.content):
             print("  ⚠ wrote the call as text instead of using tool_calls → the agent "
                   "understands it anyway, but also try --mode text")
         else:
-            print(f"  ❌ did not call the tool; replied: '{shorten(text, 100)}'. "
+            print(f"  ❌ did not call the tool; replied: '{shorten(reply.content, 100)}'. "
                   "Try --mode text.")
             failures += 1
-    except (APIError, KeyError, IndexError) as e:
+    except APIError as e:
         print(f"  ❌ {e}")
         failures += 1
-    try:
-        for m in client.ollama_ps():
-            if client.model in (m.get("name"), m.get("model")):
-                print(f"  The server has it loaded with a context of "
-                      f"{m.get('context_length', '?')} tokens and "
-                      f"{(m.get('size_vram') or 0) / 1e9:.1f} GB in VRAM.")
-    except APIError:
-        pass
+    if provider.supports_status:
+        try:
+            for m in provider.loaded():
+                if provider.model in (m.get("name"), m.get("model")):
+                    print(f"  The server has it loaded with a context of "
+                          f"{m.get('context_length', '?')} tokens and "
+                          f"{(m.get('size_vram') or 0) / 1e9:.1f} GB in VRAM.")
+        except APIError:
+            pass
     print(c("\nAll good." if not failures else f"\n{failures} check(s) with problems.",
             GREEN if not failures else RED))
     return failures

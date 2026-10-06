@@ -11,7 +11,7 @@ Command line: vibespice <command>.
     vibespice bench all --time-limit 2h
     vibespice check | status | selftest
     vibespice analyze --by-version
-    vibespice init                        # creates the configuration file
+    vibespice init                        # asks which API, key and model to use
 
 Without arguments, in a terminal, a guided menu asks what it needs and shows the command.
 """
@@ -22,18 +22,18 @@ import shlex
 import sys
 from pathlib import Path
 
-from . import __version__, agent, analyze, batch, checks, config
+from . import __version__, agent, analyze, batch, checks, config, wizard
 from . import challenges as C
-from .console import BLUE, BOLD, GREEN, GREY, RED, c, tilde
+from .console import BLUE, BOLD, GREEN, GREY, RED, YELLOW, c, tilde
 
 
-LEGAL = f"""vibespice {__version__}
+LEGAL = """vibespice {version} (code: {code})
 Copyright 2026 Mauro Rodriguez Blasco
 License AGPL-3.0-only: GNU Affero General Public License, version 3
 <https://www.gnu.org/licenses/agpl-3.0.html>, with an additional term on attribution
 (see NOTICE). This is free software: you are free to change and redistribute it.
 There is NO WARRANTY, to the extent permitted by law.
-Source code: https://github.com/mauro-hw/vibespice-app"""
+Source code: https://github.com/mauro-hw/vibespice"""
 
 
 def prog_name() -> str:
@@ -49,22 +49,31 @@ def list_challenges(prog: str) -> None:
             "sees them).", GREY))
 
 
-def init(prog: str) -> int:
+def init(prog: str, template: bool) -> int:
+    """In a terminal, the questions (wizard.py); otherwise, or with --template, the
+    commented template."""
+    if not template and sys.stdin.isatty() and sys.stdout.isatty():
+        return wizard.run(prog)
     path, created = config.init()
     if not created:
         print(f"The configuration file already exists: {tilde(path)}")
         print(c(f"Edit it with any text editor, then run: {prog} check", GREY))
         return 0
     print(c(f"✅ Created {tilde(path)} (only you can read it)", GREEN))
-    print(f"Open it and fill in url, api_key and model in [profiles.main], for example:\n"
+    print(f"Open it and paste your key in [profiles.claude], or set up another provider "
+          f"(OpenAI, OpenRouter, Ollama, Open WebUI: there are examples), for example:\n"
           f"  nano {tilde(path)}\nThen run:  {prog} check   (it lists the models if model is "
           "empty)")
     return 0
 
 
-def status(client: agent.OWUIClient) -> int:
+def status(provider: agent.Provider) -> int:
+    if not provider.supports_status:
+        print(c(f"status is only available with Open WebUI, not with the {provider.name} "
+                "provider.", RED))
+        return 2
     try:
-        for m in client.ollama_ps() or [{"name": "(no model loaded)"}]:
+        for m in provider.loaded() or [{"name": "(no model loaded)"}]:
             print(f"{m.get('name')} · context {m.get('context_length', '-')} · "
                   f"VRAM {(m.get('size_vram') or 0) / 1e9:.1f} GB · expires "
                   f"{str(m.get('expires_at', '-'))[:19]}")
@@ -86,6 +95,7 @@ MENU = [
      ["bench", "{challenge}", "--repeat", "{times}", "--time-limit", "{time}"]),
     ("Analyze the saved runs", ["analyze"]),
     ("Local test without AI (self-test)", ["selftest"]),
+    ("Set up a model or API (first time, or to add another)", ["init"]),
 ]
 
 
@@ -93,6 +103,8 @@ def menu(prog: str, ask=input) -> list[str] | None:
     """No arguments and in a terminal: guided menu that shows the command it will run."""
     print(c("vibespice — what do you want to do?", BOLD))
     print(c(f"  {__version__} · AGPL-3.0-only · no warranty ({prog} --version)", GREY))
+    if not config.config_file().exists():
+        print(c(f"  First time? Choose {len(MENU)} to set up the model and API.", YELLOW))
     for i, (text, _) in enumerate(MENU, 1):
         print(f"  {i}. {text}")
     print(c(f"  0. Quit   (all commands: {prog} -h)", GREY))
@@ -144,14 +156,15 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
     model = argparse.ArgumentParser(add_help=False, parents=[server])
     model.add_argument("--model", help="model id on the server (default: model in the profile)")
     model.add_argument("--think", default="yes",
-                       help="reasoning: yes, no or a level the model supports (qwen3.8: low, "
-                            "medium, xhigh; with 'yes', the model's default level)")
+                       help="reasoning: yes, no or a level the model supports (Claude: low, "
+                            "medium, high, xhigh, max; qwen3.8: low, medium, xhigh). 'yes' is "
+                            "the model's default level (high with Claude)")
     model.add_argument("--mode", choices=["native", "text"], default="native",
                        help="native = the API's tool_calls; text = <tool_call> inside the text")
     model.add_argument("--max-steps", type=int, default=20, help="cap on model replies")
     model.add_argument("--num-ctx", default="auto",
-                       help="'auto' = the one the server already has loaded (avoids reloads); "
-                            "or a number")
+                       help="Open WebUI only: 'auto' = the context the server already has "
+                            "loaded (avoids reloads); or a number")
     model.add_argument("--show-thinking", action="store_true", help="shows the reasoning")
 
     r = sub.add_parser("run", parents=[model], help="design or simulate what you ask for",
@@ -178,7 +191,11 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
     sub.add_parser("selftest", help="local test without AI: ngspice, tools and verifiers")
     a = sub.add_parser("analyze", help="statistics of the saved runs")
     analyze.add_arguments(a)
-    sub.add_parser("init", help="create the configuration file (it never overwrites it)")
+    i = sub.add_parser("init", help="set up which model and API to use (asks, or adds a "
+                                    "profile if the file exists)")
+    i.add_argument("--template", action="store_true",
+                   help="just write the commented template, without questions (never "
+                        "overwrites)")
     return p
 
 
@@ -211,13 +228,13 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     if args.version:
-        print(LEGAL)
+        print(LEGAL.format(version=__version__, code=agent.code_version()))
         return 0
     if args.command is None:
         p.print_help()
         return 0
     if args.command == "init":
-        return init(prog)
+        return init(prog, args.template)
     settings = config.load(getattr(args, "profile", None))
     agent.configure(settings)
     if args.command == "selftest":
@@ -245,8 +262,8 @@ def main(argv: list[str] | None = None) -> int:
                 else "single")
 
     try:
-        client = agent.make_client(settings, getattr(args, "model", None),
-                                   need_model=args.command in ("run", "bench"))
+        provider = agent.make_provider(settings, getattr(args, "model", None),
+                                       need_model=args.command in ("run", "bench"))
     except agent.APIError as e:
         if args.command == "check":
             checks.check(None, settings)
@@ -254,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args.command == "check":
-        return 1 if checks.check(client, settings) else 0
+        return 1 if checks.check(provider, settings) else 0
     if args.command == "status":
-        return status(client)
-    return batch.run_batch(client, jobs, args, kind)
+        return status(provider)
+    return batch.run_batch(provider, jobs, args, kind)

@@ -23,9 +23,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(ROOT))
 import fake_server as fs  # noqa: E402
 
-# (scenario, agent arguments, texts that must appear in the output)
+# Providers other than Open WebUI ({url} is the fake server; None removes the variable)
+CLAUDE = {"VIBESPICE_PROVIDER": "anthropic", "VIBESPICE_URL": "{url}",
+          "VIBESPICE_MODEL": "claude-opus-5-5"}
+HAIKU = dict(CLAUDE, VIBESPICE_MODEL="claude-haiku-4-5")
+OPENAI = {"VIBESPICE_PROVIDER": "openai", "VIBESPICE_URL": "{url}/v1",
+          "VIBESPICE_MODEL": "gpt-test"}
+
+# (scenario, agent arguments, texts that must appear in the output — or must not, with a
+# leading "!" — and, optionally, environment variables for that run)
 CASES = [
     ("challenge2", ["check"], ["All good", "native mode works"]),
     ("challenge2", ["bench", "2", "--show-thinking"], ["Result: PASS", "💭"]),
@@ -71,6 +80,48 @@ CASES = [
     # bench without IDs lists the challenges; an unknown ID fails before connecting
     ("challenge2", ["bench"], ["Available challenges", "Warm-up"]),
     ("challenge2", ["bench", "9"], ["No challenge '9'"]),
+    ("busy", ["bench", "0"], ["HTTP 429", "retrying in 0 s (1/4)", "HTTP 503", "(2/4)",
+                              "Result: PASS"]),
+    # Claude API: history kept as it came, tool results together, effort, caching, fallbacks
+    ("challenge2", ["check"],
+     ["2. Claude API", "Claude Opus 5.5: context 1000000",
+      "reasoning (--think): yes, low, medium, high, xhigh, max · yes = high",
+      "fallback model Anthropic recommends", "native mode works", "All good"], CLAUDE),
+    ("challenge7", ["bench", "7"],
+     ["anthropic · model claude-opus-5-5 · reasoning: high", "cached)", "Result: PASS",
+      "!possible context truncation", "!context:"], CLAUDE),
+    ("invents", ["bench", "6", "--think", "medium"], ["reasoning: medium", "Result: PASS"],
+     CLAUDE),
+    ("challenge6", ["bench", "6", "--show-thinking"], ["💭", "Result: PASS"], CLAUDE),
+    ("busy", ["bench", "0", "--think", "low"],
+     ["HTTP 429", "retrying in 0 s (1/4)", "HTTP 529", "(2/4)", "Result: PASS"], CLAUDE),
+    ("refusal", ["bench", "0"],
+     ["the model declined to answer (category: cyber)", "state: refusal", "Result: FAIL"],
+     CLAUDE),
+    ("fallback", ["run", "Design a 12 V to 5 V divider"],
+     ["claude-opus-5-5 declined; claude-opus-5 continued", "Result: UNVERIFIED"], CLAUDE),
+    ("challenge2", ["bench", "0", "--think", "no"], ["claude-opus-5-5 always reasons"], CLAUDE),
+    ("challenge2", ["bench", "0", "--num-ctx", "8192"],
+     ["--num-ctx only applies to Open WebUI"], CLAUDE),
+    ("challenge2", ["status"], ["status is only available with Open WebUI"], CLAUDE),
+    ("cold", ["bench", "0"], ["reasoning: yes", "Result: PASS"], HAIKU),
+    ("challenge2", ["bench", "0", "--think", "low"],
+     ["claude-haiku-4-5 does not support --think low. Options: yes, no."], HAIKU),
+    ("challenge2", ["check"], ["HTTP 401", "Claude Console"],
+     dict(CLAUDE, VIBESPICE_API_KEY="sk-ant-wrong")),
+    ("cold", ["check"], ["2. Claude API", "ANTHROPIC_API_KEY", "All good"],
+     dict(CLAUDE, VIBESPICE_API_KEY=None, ANTHROPIC_API_KEY="sk-test")),
+    # Any OpenAI-compatible API
+    ("challenge2", ["check"], ["2. OpenAI-compatible API", "native mode works", "All good"],
+     OPENAI),
+    ("challenge7", ["bench", "7"], ["openai · model gpt-test", "Result: PASS"], OPENAI),
+    ("challenge2", ["bench", "2", "--think", "high", "--show-thinking"],
+     ["reasoning: high", "💭", "Result: PASS"], OPENAI),
+    ("busy", ["bench", "0"], ["HTTP 429", "HTTP 503", "Result: PASS"], OPENAI),
+    ("challenge2", ["bench", "0", "--think", "no"], ["no standard way to turn reasoning off"],
+     OPENAI),
+    ("nokey", ["bench", "0"], ["Result: PASS"], dict(OPENAI, VIBESPICE_API_KEY=None)),
+    ("challenge2", ["bench", "0", "--model", "nope"], ["HTTP 404", "does not exist"], OPENAI),
 ]
 
 
@@ -148,12 +199,95 @@ def config_tests(tmp: Path, env: dict) -> int:
     return failures
 
 
+def wizard_tests(tmp: Path) -> int:
+    """vibespice init in a terminal, run here with scripted answers against the fake
+    server, with its own configuration folder and no key in the environment."""
+    import tomllib
+
+    from vibespice import config, wizard
+    saved = dict(os.environ)
+    for k in list(os.environ):
+        if k.startswith("VIBESPICE_") or k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+            del os.environ[k]
+    os.environ["XDG_CONFIG_HOME"] = str(tmp / "wizard")
+    failures = 0
+
+    def init(answers, secrets, scenario="challenge2", urls=None) -> tuple[int, str]:
+        srv, url = fs.start_in_background(scenario)
+        a, k, lines = iter(answers), iter(secrets), []
+
+        def ask(prompt):            # out of answers = end of input, as in a terminal
+            lines.append(prompt)
+            try:
+                return next(a).format(url=url)
+            except StopIteration:
+                raise EOFError from None
+        try:
+            rc = wizard.run("vibespice", ask, lambda prompt: next(k), lines.append,
+                            {n: u.format(url=url) for n, u in (urls or {}).items()})
+        finally:
+            srv.shutdown()
+        return rc, "\n".join(lines)
+
+    def profiles() -> dict:
+        path = config.config_file()
+        return tomllib.loads(path.read_text()) if path.exists() else {}
+
+    try:
+        # Claude: a wrong key, then the right one; Enter takes the suggested model
+        rc, out = init(["1", "1", "", "n"], ["sk-ant-wrong", fs.KEY],
+                       urls={"claude": "{url}"})
+        d, path = profiles(), config.config_file()
+        failures += report("init       new file: Claude, wrong key then the right one",
+                           rc == 0 and "HTTP 401" in out and "Connected: 2 models" in out
+                           and d.get("default_profile") == "claude"
+                           and d["profiles"]["claude"]["model"] == "claude-opus-5-5"
+                           and d["profiles"]["claude"]["api_key"] == fs.KEY
+                           and path.stat().st_mode & 0o777 == 0o600, out)
+        before = path.read_text()
+        # Open WebUI: a typo in the model, then a number; becomes the default
+        rc, out = init(["y", "6", "{url}", "qwen", "1", "y", "n"], [fs.KEY])
+        d = profiles()
+        failures += report("init       adds Open WebUI, suggests models, keeps the rest",
+                           rc == 0 and "Did you mean: qwen3:32b" in out
+                           and d.get("default_profile") == "openwebui"
+                           and d["profiles"]["openwebui"]["model"] == "qwen3:32b"
+                           and before.replace('default_profile = "claude"',
+                                              'default_profile = "openwebui"')
+                           in path.read_text(), out)
+        # Ollama: no key; not the default
+        rc, out = init(["y", "4", "qwen3:8b", "n", "n"], [], scenario="nokey",
+                       urls={"local": "{url}/v1"})
+        d = profiles()
+        failures += report("init       Ollama without a key, not the default",
+                           rc == 0 and "api_key" in d["profiles"]["local"]
+                           and not d["profiles"]["local"]["api_key"]
+                           and d["default_profile"] == "openwebui", out)
+        # Unreachable server: saved anyway, with the model typed by hand
+        rc, out = init(["y", "5", "http://127.0.0.1:9/v1", "2", "my-model", "n"], [""])
+        d = profiles()
+        failures += report("init       unreachable server, saved anyway",
+                           rc == 0 and "Can't connect" in out
+                           and d["profiles"]["custom"]["model"] == "my-model", out)
+        # Cancelled halfway: nothing changes
+        text = path.read_text()
+        rc, out = init(["y"], [])
+        failures += report("init       cancelled halfway, nothing saved",
+                           rc == 1 and "nothing was saved" in out and path.read_text() == text,
+                           out)
+    finally:
+        os.environ.clear()
+        os.environ.update(saved)
+    return failures
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="vibespice_tests_"))
     (tmp / "task.txt").write_text("Design a divider that gives 5 V from 12 V.\n",
                                   encoding="utf-8")
-    # Never the developer's configuration or logs: their own folders, and no VIBESPICE_*
-    env = {k: v for k, v in os.environ.items() if not k.startswith("VIBESPICE_")}
+    # Never the developer's configuration, logs or keys: their own folders, no VIBESPICE_*
+    env = {k: v for k, v in os.environ.items() if not k.startswith("VIBESPICE_")
+           and k not in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY")}
     env.update(NO_COLOR="1", VIBESPICE_NO_NOTIFY="1", PYTHONPATH=str(ROOT),
                XDG_CONFIG_HOME=str(tmp / "config"), XDG_DATA_HOME=str(tmp / "data"),
                VIBESPICE_API_KEY=fs.KEY, VIBESPICE_MODEL=fs.MODEL,
@@ -166,14 +300,21 @@ def main() -> int:
     failures += report("--version", rc == 0 and out.startswith("vibespice ")
                        and "AGPL-3.0-only" in out and "NO WARRANTY" in out, out)
 
-    for scenario, args, expected in CASES:
+    for scenario, args, expected, *extra in CASES:
         srv, url = fs.start_in_background(scenario)
+        run_env = dict(env, VIBESPICE_URL=url)
+        for k, v in (extra[0] if extra else {}).items():
+            if v is None:
+                run_env.pop(k, None)
+            else:
+                run_env[k] = v.format(url=url)
         try:
-            rc, out = vibespice(args, dict(env, VIBESPICE_URL=url), tmp)
+            rc, out = vibespice(args, run_env, tmp)
         finally:
             srv.shutdown()
-        missing = [e for e in expected if e not in out]
-        failures += report(f"{scenario:10s} {' '.join(args)}",
+        missing = [e for e in expected if (e[1:] in out if e.startswith("!") else e not in out)]
+        name = (run_env.get("VIBESPICE_PROVIDER") or "")[:9]
+        failures += report(f"{scenario:10s} {name + ' ' if name else ''}{' '.join(args)}",
                            not missing and "Traceback" not in out, out, missing)
 
     # The log analysis must understand what the tests left behind
@@ -184,6 +325,7 @@ def main() -> int:
                        and "Traceback" not in out, out)
 
     failures += config_tests(tmp, env)
+    failures += wizard_tests(tmp)
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nAll tests passed." if not failures else f"\n{failures} test(s) failed.")

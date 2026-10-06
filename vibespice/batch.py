@@ -105,16 +105,20 @@ def duration(text: str) -> float:
     return s
 
 
-def run_batch(client: agent.OWUIClient, jobs: list[tuple], args, kind: str) -> int:
+def run_batch(provider: agent.Provider, jobs: list[tuple], args, kind: str) -> int:
     """Runs each job (task, challenge or None, label) args.repeat times, within
     args.time_limit, and summarizes. kind goes to the logs: free, single, repeat or all."""
-    args.think, error = agent.resolve_think(client, args.think)
+    if args.num_ctx != "auto" and not provider.supports_num_ctx:
+        print(c(f"--num-ctx only applies to Open WebUI; the {provider.name} provider decides "
+                "the context itself.", RED))
+        return 2
+    args.think, error = provider.resolve_think(args.think)
     if error:
         print(c(error, RED))
         return 2
     args.batch_kind = kind
     if args.num_ctx == "auto":
-        num_ctx = agent.loaded_context(client)
+        num_ctx = provider.loaded_context()
     else:
         num_ctx = int(args.num_ctx)
         print(c(f"⚠ You are requesting num_ctx={num_ctx}. If other users of the server use a "
@@ -125,7 +129,7 @@ def run_batch(client: agent.OWUIClient, jobs: list[tuple], args, kind: str) -> i
     if awake:
         print(c(f"☕ {awake}", GREY))
     if kind != "free":
-        estimate_before([ch.id for _, ch, _ in jobs], args.repeat, client.model, args.think,
+        estimate_before([ch.id for _, ch, _ in jobs], args.repeat, provider.model, args.think,
                         args.time_limit)
 
     results = []
@@ -140,7 +144,7 @@ def run_batch(client: agent.OWUIClient, jobs: list[tuple], args, kind: str) -> i
                     stopped = (f"after {done} of {total} runs (limit of {limit / 60:.0f} min, "
                                f"average {elapsed / done / 60:.1f} min)")
                     break
-                r = agent.run_once(client, task, challenge, args, label, num_ctx,
+                r = agent.run_once(provider, task, challenge, args, label, num_ctx,
                                    n if args.repeat > 1 else None)
                 results.append((label, n, r))
                 if total > 1:

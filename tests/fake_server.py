@@ -2,26 +2,34 @@
 # Copyright 2026 Mauro Rodriguez Blasco
 # Additional term under section 7(b) of the license: see NOTICE.
 """
-Fake Open WebUI to test the agent without a real server.
+Fake LLM server to test the agent without a real one. It speaks three dialects at once:
 
-It imitates what Open WebUI 0.10.2 does with /api/chat/completions when the model comes
-from Ollama: it converts the request to Ollama's format (and, like the real one, parses
-again with json.loads the tool_call arguments we send back) and converts the reply to the
-OpenAI format (tool_calls with id, arguments as JSON text, reasoning_content and usage
-with prompt_tokens). The "model" follows a fixed script per scenario.
+- Open WebUI 0.10.2 (/api/chat/completions, /ollama/api/*): it converts the request to
+  Ollama's format (and, like the real one, parses again with json.loads the tool_call
+  arguments we send back) and the reply to the OpenAI format;
+- an OpenAI-compatible API (/v1/chat/completions, /v1/models);
+- the Claude API (/v1/messages, /v1/models), checking what the real one rejects: an edited
+  earlier turn, tool results split across messages, sampling parameters, a disabled thinking
+  on a model that always reasons, fallbacks without their beta header...
+
+The "model" follows a fixed script per scenario, the same in every dialect.
 
 Direct use (to play by hand):
     python3 tests/fake_server.py challenge2 18080
     VIBESPICE_URL=http://127.0.0.1:18080 VIBESPICE_API_KEY=sk-test \
         VIBESPICE_MODEL=qwen3:32b python3 -m vibespice bench 2
+    VIBESPICE_PROVIDER=anthropic VIBESPICE_URL=http://127.0.0.1:18080 \
+        VIBESPICE_API_KEY=sk-test VIBESPICE_MODEL=claude-opus-5-5 python3 -m vibespice bench 2
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 KEY = "sk-test"
 MODEL = "qwen3:32b"
@@ -37,6 +45,28 @@ CARDS = {
                "details": {"parameter_size": "27.3B", "quantization_level": "Q8_0"},
                "model_info": {"qwen35.context_length": 262144}},
 }
+# OpenAI-compatible API
+OPENAI_MODELS = ["gpt-test", "qwen3:8b"]
+# Claude API: what /v1/models/{id} returns (what matters to the agent)
+_EFFORT = {"supported": True, **{e: {"supported": True}
+                                 for e in ("low", "medium", "high", "xhigh", "max")}}
+CLAUDE = {
+    "claude-opus-5-5": {"display_name": "Claude Opus 5.5", "max_input_tokens": 1000000,
+                        "max_tokens": 128000, "capabilities": {
+                            "thinking": {"supported": True, "types": {
+                                "enabled": {"supported": False},
+                                "adaptive": {"supported": True}}},
+                            "effort": _EFFORT}},
+    "claude-haiku-4-5": {"display_name": "Claude Haiku 4.5", "max_input_tokens": 200000,
+                         "max_tokens": 64000, "capabilities": {
+                             "thinking": {"supported": True, "types": {
+                                 "enabled": {"supported": True},
+                                 "adaptive": {"supported": False}}},
+                             "effort": {"supported": False}}},
+}
+CLAUDE_ALWAYS_THINKS = {"claude-opus-5-5"}
+CLAUDE_FALLBACKS = {"claude-opus-5-5"}
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
 NET = "V1 in 0 DC 12\nR1 in out 14k\nR2 out 0 10k\n.op"
 NET18 = "V1 in 0 DC 12\nR1 in out 18k\nR2 out 0 13k\n.op"
 
@@ -87,6 +117,122 @@ def to_openai(model: str, msg: dict, input_tokens: int) -> dict:
             "usage": {"prompt_tokens": input_tokens, "completion_tokens": 150,
                       "total_tokens": input_tokens + 150, "response_token/s": 30.0,
                       "prompt_eval_count": input_tokens, "eval_count": 150}}
+
+
+def to_openai_v1(model: str, msg: dict, input_tokens: int) -> dict:
+    """A plain OpenAI chat completion (reasoning in 'reasoning', like OpenRouter)."""
+    resp = to_openai(model, msg, input_tokens)
+    message = resp["choices"][0]["message"]
+    if "reasoning_content" in message:
+        message["reasoning"] = message.pop("reasoning_content")
+    if msg.get("refusal"):
+        resp["choices"][0]["finish_reason"] = "content_filter"
+    resp["usage"] = {"prompt_tokens": input_tokens, "completion_tokens": 150,
+                     "total_tokens": input_tokens + 150,
+                     "prompt_tokens_details": {"cached_tokens": 0}}
+    return resp
+
+
+def signature(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:24]
+
+
+def to_anthropic(model: str, msg: dict, total: int, cached: int) -> dict:
+    blocks = []
+    if msg.get("fallback"):
+        blocks.append({"type": "fallback", "from": {"model": model},
+                       "to": {"model": "claude-opus-5"}})
+    if msg.get("thinking"):
+        blocks.append({"type": "thinking", "thinking": msg["thinking"],
+                       "signature": signature(msg["thinking"])})
+    if msg.get("content"):
+        blocks.append({"type": "text", "text": msg["content"]})
+    for call in msg.get("tool_calls") or []:
+        blocks.append({"type": "tool_use", "id": f"toolu_{uuid.uuid4().hex[:16]}",
+                       "name": call["function"]["name"], "input": call["function"]["arguments"]})
+    stop = "refusal" if msg.get("refusal") else "tool_use" \
+        if any(b["type"] == "tool_use" for b in blocks) else "end_turn"
+    usage = {"input_tokens": 12, "cache_read_input_tokens": cached,
+             "cache_creation_input_tokens": max(0, total - cached - 12), "output_tokens": 150}
+    if msg.get("fallback"):
+        usage["iterations"] = [{"type": "message"}, {"type": "fallback_message"}]
+    return {"id": f"msg_{uuid.uuid4().hex[:16]}", "type": "message", "role": "assistant",
+            "model": "claude-opus-5" if msg.get("fallback") else model, "content": blocks,
+            "stop_reason": stop,
+            "stop_details": {"type": "refusal", "category": "cyber",
+                             "explanation": "scripted refusal"} if msg.get("refusal") else None,
+            "usage": usage}
+
+
+def from_openai_v1(body: dict) -> dict:
+    """An OpenAI-compatible request as the Ollama-like payload the script reads."""
+    payload = to_ollama({k: v for k, v in body.items() if k not in ("options",)})
+    payload["think"] = body.get("reasoning_effort")
+    return payload
+
+
+def from_anthropic(body: dict) -> dict:
+    """A Claude API request as the Ollama-like payload the script reads."""
+    messages = [{"role": "system", "content": body["system"]}] if body.get("system") else []
+    for m in body["messages"]:
+        content = m["content"]
+        if not isinstance(content, str):
+            content = "\n".join(b.get("text", "") if b.get("type") == "text"
+                                else b.get("content", "") if b.get("type") == "tool_result"
+                                else "" for b in content)
+        messages.append({"role": m["role"], "content": content})
+    payload = {"model": body["model"], "messages": messages,
+               "think": (body.get("output_config") or {}).get("effort")
+               or (body.get("thinking") or {}).get("type") in ("adaptive", "enabled")}
+    if body.get("tools"):
+        payload["tools"] = body["tools"]
+    return payload
+
+
+def check_anthropic(body: dict, headers, sent: dict) -> str:
+    """What the real Claude API would reject (and what vibespice must always send)."""
+    model = body.get("model")
+    if not isinstance(body.get("max_tokens"), int):
+        return "max_tokens: field required"
+    for k in ("temperature", "top_p", "top_k"):
+        if k in body:
+            return f"{k}: not supported for this model"
+    if body.get("cache_control") != {"type": "ephemeral"}:
+        return "(fake) vibespice must ask for automatic prompt caching"
+    thinking = body.get("thinking") or {}
+    if model in CLAUDE_ALWAYS_THINKS and thinking.get("type") in ("disabled", "enabled"):
+        return f"thinking.type: {thinking['type']} is not supported for {model}"
+    effort = (body.get("output_config") or {}).get("effort")
+    if effort and not CLAUDE[model]["capabilities"]["effort"].get(effort, {}).get("supported"):
+        return f"output_config.effort: {effort} is not supported for {model}"
+    beta = FALLBACK_BETA in (headers.get("anthropic-beta") or "")
+    if model in CLAUDE_FALLBACKS and (body.get("fallbacks") != "default" or not beta):
+        return "(fake) vibespice must send fallbacks: default with its beta header"
+    if model not in CLAUDE_FALLBACKS and ("fallbacks" in body or beta):
+        return f"fallbacks: not available for {model}"
+    for t in body.get("tools") or []:
+        if set(t) != {"name", "description", "input_schema"}:
+            return f"tools: unexpected fields {sorted(t)}"
+    messages = body.get("messages") or []
+    if not messages or messages[0]["role"] != "user":
+        return "messages: the first message must use the user role"
+    last = -1
+    for i, m in enumerate(messages):
+        if m["role"] != "assistant":
+            continue
+        key = json.dumps(m["content"], sort_keys=True)
+        if key not in sent or sent[key] <= last:
+            return f"messages.{i}: an earlier assistant turn was modified or reordered"
+        last = sent[key]
+        uses = [b["id"] for b in m["content"] if b.get("type") == "tool_use"]
+        if uses:
+            nxt = messages[i + 1]["content"] if i + 1 < len(messages) else ""
+            results = [b.get("tool_use_id") for b in nxt if isinstance(b, dict)
+                       and b.get("type") == "tool_result"] if isinstance(nxt, list) else []
+            if sorted(results) != sorted(uses):
+                return (f"messages.{i + 1}: tool_use ids {uses} need their tool_result "
+                        "blocks in the next message")
+    return ""
 
 
 # --- Scripted "model" ------------------------------------------------------------------
@@ -157,6 +303,14 @@ def model_reply(scenario: str, payload: dict) -> dict:
         return {"content": '```json\n{"vout_V": 5.0323, "current_mA": 0.3871}\n```'}
     if scenario == "fail":       # wrong answer: the verification must fail it
         return {"content": '```json\n{"max_tolerance_pct": 2.0, "commercial_tolerance_pct": 2}\n```'}
+    if scenario == "refusal":
+        return {"refusal": True, "content": ""}
+    if scenario in ("busy", "nokey", "fallback"):   # errors and dialect details: see the server
+        if n == 0:
+            return {"thinking": thinking, "tool_calls": [tc("simulate", {"netlist": NET18})],
+                    "fallback": scenario == "fallback"}
+        return {"content": 'Vout = 5.0323 V.\n```json\n{"vout_V": 5.03226, '
+                           '"current_mA": 0.387097}\n```'}
     if scenario == "cold":       # the model is not loaded until the first request
         if n == 0:
             return {"tool_calls": [tc("simulate", {"netlist": NET18})]}
@@ -226,18 +380,28 @@ def model_reply(scenario: str, payload: dict) -> dict:
 
 
 # --- HTTP server -----------------------------------------------------------------------
+def error_body(dialect: str, kind: str, message: str) -> dict:
+    if dialect == "anthropic":
+        return {"type": "error", "error": {"type": kind, "message": message}}
+    return {"error": {"message": message, "type": kind}}
+
+
 def make_server(scenario: str, port: int = 0) -> ThreadingHTTPServer:
-    loaded = {"yes": scenario != "cold"}
+    # sent: every Claude reply (its content, as JSON) → order, to check the history
+    state = {"loaded": scenario != "cold", "chats": 0, "sent": {}, "prev": 0}
+    lock = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass
 
-        def _send(self, code: int, obj) -> None:
+        def _send(self, code: int, obj, headers: dict | None = None) -> None:
             data = json.dumps(obj).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(data)
 
@@ -247,7 +411,117 @@ def make_server(scenario: str, port: int = 0) -> ThreadingHTTPServer:
                 return False
             return True
 
+        def _busy(self, dialect: str) -> bool:
+            """Scenario 'busy': the first chat gets a 429 and the second a 529 (503 outside
+            the Claude API), both with retry-after: 0; then it answers."""
+            if scenario != "busy":
+                return False
+            with lock:
+                state["chats"] += 1
+                n = state["chats"]
+            if n == 1:
+                self._send(429, error_body(dialect, "rate_limit_error", "Too many requests"),
+                           {"retry-after": "0"})
+                return True
+            if n == 2:
+                self._send(529 if dialect == "anthropic" else 503,
+                           error_body(dialect, "overloaded_error", "Overloaded"),
+                           {"retry-after": "0"})
+                return True
+            return False
+
+        # --- OpenAI-compatible API ------------------------------------------------------
+        def _openai_authorized(self) -> bool:
+            auth = self.headers.get("Authorization")
+            if (auth is not None) if scenario == "nokey" else auth != f"Bearer {KEY}":
+                self._send(401, error_body("openai", "invalid_request_error",
+                                           "Incorrect API key provided"))
+                return False
+            return True
+
+        def _openai_chat(self, body: dict) -> None:
+            if not self._openai_authorized():
+                return
+            for k in ("options", "think", "top_k"):
+                if k in body:
+                    return self._send(400, error_body(
+                        "openai", "invalid_request_error",
+                        f"Unrecognized request argument supplied: {k}"))
+            if body.get("model") not in OPENAI_MODELS:
+                return self._send(404, error_body(
+                    "openai", "invalid_request_error",
+                    f"The model `{body.get('model')}` does not exist"))
+            if self._busy("openai"):
+                return
+            try:
+                payload = from_openai_v1(body)
+                msg = model_reply(scenario, payload)
+            except Exception as e:  # noqa: BLE001 - returned as a 500, like the real one
+                return self._send(500, error_body("openai", "server_error",
+                                                  f"{type(e).__name__}: {e}"))
+            self._send(200, to_openai_v1(body["model"], msg, len(json.dumps(payload)) // 3))
+
+        # --- Claude API -----------------------------------------------------------------
+        def _anthropic_authorized(self) -> bool:
+            if self.headers.get("x-api-key") != KEY:
+                self._send(401, error_body("anthropic", "authentication_error",
+                                           "invalid x-api-key"))
+                return False
+            if self.headers.get("anthropic-version") != "2023-06-01":
+                self._send(400, error_body("anthropic", "invalid_request_error",
+                                           "anthropic-version: header required"))
+                return False
+            return True
+
+        def _anthropic_models(self, path: str) -> None:
+            if not self._anthropic_authorized():
+                return
+            if path == "/v1/models":
+                return self._send(200, {"data": [{"type": "model", "id": k,
+                                                  "display_name": v["display_name"]}
+                                                 for k, v in CLAUDE.items()],
+                                        "has_more": False})
+            model = path.rsplit("/", 1)[-1]
+            if model not in CLAUDE:
+                return self._send(404, error_body("anthropic", "not_found_error",
+                                                  f"model: {model}"))
+            self._send(200, {"type": "model", "id": model, **CLAUDE[model]})
+
+        def _anthropic_chat(self, body: dict) -> None:
+            if not self._anthropic_authorized():
+                return
+            if body.get("model") not in CLAUDE:
+                return self._send(404, error_body("anthropic", "not_found_error",
+                                                  f"model: {body.get('model')}"))
+            with lock:
+                problem = check_anthropic(body, self.headers, state["sent"])
+            if problem:
+                return self._send(400, error_body("anthropic", "invalid_request_error",
+                                                  problem))
+            if self._busy("anthropic"):
+                return
+            try:
+                msg = model_reply(scenario, from_anthropic(body))
+            except Exception as e:  # noqa: BLE001 - returned as a 500, like the real one
+                return self._send(500, error_body("anthropic", "api_error",
+                                                  f"{type(e).__name__}: {e}"))
+            total = len(json.dumps(body)) // 3
+            with lock:
+                cached, state["prev"] = min(state["prev"], total), total
+                resp = to_anthropic(body["model"], msg, total, cached)
+                state["sent"][json.dumps(resp["content"], sort_keys=True)] = len(state["sent"])
+            self._send(200, resp)
+
+        # --- Routing --------------------------------------------------------------------
         def do_GET(self):
+            path = urlsplit(self.path).path
+            if path.startswith("/v1/models"):
+                if self.headers.get("anthropic-version") or self.headers.get("x-api-key"):
+                    return self._anthropic_models(path)
+                if not self._openai_authorized():
+                    return
+                return self._send(200, {"object": "list", "data": [
+                    {"id": m, "object": "model"} for m in OPENAI_MODELS]})
             if not self._authorized():
                 return
             routes = {
@@ -257,25 +531,32 @@ def make_server(scenario: str, port: int = 0) -> ThreadingHTTPServer:
                 "/ollama/api/ps": {"models": [{"name": MODEL, "model": MODEL,
                                                "size_vram": 26_400_000_000, "context_length": 40960,
                                                "expires_at": "2026-09-28T11:05:00+02:00"}]
-                                   if loaded["yes"] else []},
+                                   if state["loaded"] else []},
             }
-            if self.path in routes:
-                return self._send(200, routes[self.path])
+            if path in routes:
+                return self._send(200, routes[path])
             self._send(404, {"detail": "Not Found"})
 
         def do_POST(self):
+            path = urlsplit(self.path).path
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            if path == "/v1/messages":
+                return self._anthropic_chat(body)
+            if path == "/v1/chat/completions":
+                return self._openai_chat(body)
             if not self._authorized():
                 return
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            if self.path == "/ollama/api/show":
+            if path == "/ollama/api/show":
                 if body.get("model") not in CARDS:
                     return self._send(404, {"detail": "model not found"})
                 return self._send(200, CARDS[body["model"]])
-            if self.path != "/api/chat/completions":
+            if path != "/api/chat/completions":
                 return self._send(404, {"detail": "Not Found"})
             if body.get("model") not in CARDS:
                 return self._send(404, {"detail": "Model not found"})
-            loaded["yes"] = True
+            if self._busy("openwebui"):
+                return
+            state["loaded"] = True
             try:
                 payload = to_ollama(body)
                 msg = model_reply(scenario, payload)
@@ -295,5 +576,5 @@ def start_in_background(scenario: str) -> tuple[ThreadingHTTPServer, str]:
 if __name__ == "__main__":
     sc = sys.argv[1] if len(sys.argv) > 1 else "challenge2"
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 18080
-    print(f"Fake Open WebUI at http://127.0.0.1:{port} (scenario {sc}, key {KEY})")
+    print(f"Fake LLM server at http://127.0.0.1:{port} (scenario {sc}, key {KEY})")
     make_server(sc, port).serve_forever()

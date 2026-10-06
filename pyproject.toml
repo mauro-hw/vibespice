@@ -24,8 +24,8 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/mauro-hw/vibespice-app"
-Changelog = "https://github.com/mauro-hw/vibespice-app/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/mauro-hw/vibespice"
+Changelog = "https://github.com/mauro-hw/vibespice/blob/main/CHANGELOG.md"
 
 [project.scripts]
 vibespice = "vibespice.cli:main"

@@ -2,34 +2,34 @@
 # Copyright 2026 Mauro Rodriguez Blasco
 # Additional term under section 7(b) of the license: see NOTICE.
 """
-Iterative LLM + ngspice agent, through Open WebUI.
+Iterative LLM + ngspice agent.
 
-The model (on your server) thinks and decides; this program, on your computer, runs
-ngspice and sends the results back, in a loop, until it gives a final answer. That
-answer is then verified independently (by re-simulating) and everything is logged.
+The model (on your server or a cloud API) thinks and decides; this program, on your
+computer, runs ngspice and sends the results back, in a loop, until it gives a final
+answer. That answer is then verified independently (by re-simulating) and everything is
+logged.
 
-This module holds the configuration, the Open WebUI client, the agent loop, the logs and
-the verification of one run. The commands live in cli.py.
+This module holds the agent loop, the logs and the verification of one run. The servers
+and APIs live in providers/, the commands in cli.py.
 
 Standard library only (tested with Python 3.11 to 3.14).
 """
 from __future__ import annotations
 
 import csv
+import importlib.metadata
 import json
 import math
 import re
-import ssl
 import subprocess
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 from . import __version__, config
 from . import challenges as C
 from . import tools as hs
+from .providers import CLASSES, APIError, Provider
 from .console import BLUE, BOLD, GREEN, GREY, RED, YELLOW, Heartbeat, c, fmt_dur, fmt_tok, \
     shorten, tilde
 
@@ -46,120 +46,26 @@ def configure(settings: config.Settings) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Open WebUI client (OpenAI-compatible API)
+# The provider: the server or API that runs the model (providers/)
 # ---------------------------------------------------------------------------
-class APIError(RuntimeError):
-    pass
-
-
-class OWUIClient:
-    def __init__(self, url: str, key: str, model: str, ca: str = "", timeout: float = 900):
-        self.url = url.rstrip("/")
-        self.key = key
-        self.model = model
-        self.timeout = timeout
-        self.ctx = ssl.create_default_context(cafile=ca) if ca else None
-
-    def _request(self, method: str, path: str, body=None, timeout: float | None = None):
-        data = json.dumps(body).encode("utf-8") if body is not None else None
-        req = urllib.request.Request(
-            self.url + path, data=data, method=method,
-            headers={"Authorization": f"Bearer {self.key}",
-                     "Content-Type": "application/json", "Accept": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=timeout or self.timeout,
-                                        context=self.ctx) as r:
-                return json.loads(r.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            detail = e.read().decode("utf-8", "replace")[:600]
-            hint = ""
-            if e.code == 401:
-                hint = (" → Key not recognized: check that api_key is copied correctly "
-                        "(it starts with sk-) and that you haven't regenerated it.")
-            elif e.code == 403:
-                hint = (" → No permission: is 'Enable API Keys' turned on in Admin > Settings > "
-                        "Authentication? Is 'API Key Endpoint Restrictions' turned off? If the "
-                        "key is not an admin key, some queries (status) are not allowed.")
-            elif e.code == 404:
-                hint = " → Path or model not found. Check url and model in your profile."
-            raise APIError(f"HTTP {e.code} at {path}: {detail}{hint}") from None
-        except urllib.error.URLError as e:
-            raise APIError(f"Can't connect to {self.url} ({e.reason}). Are the URL and port "
-                           "right? Can this machine reach the server?") from None
-        except TimeoutError:
-            raise APIError(f"No reply within {timeout or self.timeout:.0f} s "
-                           "(raise timeout in your profile if the model thinks for long).") from None
-        except json.JSONDecodeError:
-            raise APIError(f"Non-JSON reply at {path}. Does url point to Open WebUI?") \
-                from None
-
-    def models(self) -> list[str]:
-        data = self._request("GET", "/api/models", timeout=30)
-        return [m.get("id", "?") for m in data.get("data", [])]
-
-    def ollama_ps(self) -> list[dict]:
-        """Models loaded in Ollama (needs an admin key)."""
-        return self._request("GET", "/ollama/api/ps", timeout=30).get("models", [])
-
-    def ollama_version(self) -> str:
-        return str(self._request("GET", "/ollama/api/version", timeout=30).get("version", "?"))
-
-    def model_card(self) -> dict:
-        """The model's card in Ollama (/api/show): reasoning levels, parameters,
-        capabilities... Does not load it on the GPU. Needs an admin key."""
-        return self._request("POST", "/ollama/api/show", {"model": self.model}, timeout=30)
-
-    def chat(self, messages, tools=None, options=None) -> dict:
-        body = {"model": self.model, "messages": messages, "stream": False}
-        if tools:
-            body["tools"] = tools
-        if options:
-            body["options"] = options
-        return self._request("POST", "/api/chat/completions", body)
-
-
-def make_client(settings: config.Settings, model: str | None = None,
-                need_model: bool = True) -> OWUIClient:
-    """The client for the configured server. Raises APIError, explained, if the
-    configuration is incomplete or (with need_model) there is no model."""
+def make_provider(settings: config.Settings, model: str | None = None,
+                  need_model: bool = True) -> Provider:
+    """The provider of the profile in use. Raises APIError, explained, if the configuration
+    is incomplete or (with need_model) there is no model."""
     if settings.problems:
         raise APIError("Incomplete configuration.\n" + config.diagnosis(settings))
     model = model or settings.model
     if need_model and not model:
         raise APIError("No model chosen: set model in your profile or pass --model. "
                        "'vibespice check' lists the models on the server.")
-    return OWUIClient(settings.url, settings.api_key, model, settings.ca, settings.timeout)
-
-
-def loaded_context(client: OWUIClient) -> int | None:
-    """num_ctx the server has the model loaded with right now (if it can be known)."""
-    try:
-        for m in client.ollama_ps():
-            if client.model in (m.get("name"), m.get("model")):
-                return int(m.get("context_length") or 0) or None
-    except (APIError, ValueError, TypeError):
-        return None
-    return None
+    return CLASSES[settings.provider](settings.url, settings.api_key, model, settings.ca,
+                                      settings.timeout, settings.max_tokens, settings.fallbacks)
 
 
 # ---------------------------------------------------------------------------
 # Reading the model's replies
 # ---------------------------------------------------------------------------
-_RE_THINK = re.compile(r"<think>(.*?)</think>", re.S)
-_RE_DETAILS = re.compile(r'<details type="reasoning".*?>(.*?)</details>', re.S)
 _RE_TOOL_CALL = re.compile(r"<tool_call>\s*(.*?)\s*(?:</tool_call>|$)", re.S)
-
-
-def split_thinking(text: str) -> tuple[str, str]:
-    """Separates the reasoning (<think>…</think>) from the visible content."""
-    thought = []
-    for rx in (_RE_THINK, _RE_DETAILS):
-        thought += rx.findall(text)
-        text = rx.sub("", text)
-    if "</think>" in text:                      # sometimes the opening tag is missing
-        before, text = text.split("</think>", 1)
-        thought.append(before)
-    return text.strip(), "\n".join(p.strip() for p in thought if p.strip())
 
 
 def calls_from_text(text: str) -> list[dict]:
@@ -295,55 +201,6 @@ Available tools (JSON Schema):
 """
 
 
-# Sampling recommended by each family's vendor, (with reasoning, without it), matched by the
-# start of the model name. A model not listed here uses the parameters of its Modelfile:
-# only 'think' is sent.
-PROFILES = {
-    "qwen3.8": ({"temperature": 1.0, "top_p": 0.95, "top_k": 20, "presence_penalty": 0.0},
-                {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}),
-    "qwen3:": ({"temperature": 0.6, "top_p": 0.95, "top_k": 20},
-               {"temperature": 0.7, "top_p": 0.8, "top_k": 20}),
-}
-
-
-def think_value(think: str) -> bool | str:
-    """--think → Ollama's 'think' field: yes/no, or the level as is (low, medium…)."""
-    return {"yes": True, "no": False}.get(think, think)
-
-
-def model_options(model: str, think: bool | str, num_ctx: int | None) -> dict:
-    profile = next((p for prefix, p in PROFILES.items() if model.startswith(prefix)), None)
-    op = {"think": think, **(profile[0 if think is not False else 1] if profile else {})}
-    if num_ctx:
-        op["num_ctx"] = int(num_ctx)
-    return op
-
-
-def resolve_think(client: OWUIClient, requested: str) -> tuple[str | None, str]:
-    """Checks --think against the levels the model declares. Returns (value, error).
-
-    'yes' becomes the model's default level if it has levels (qwen3.8: medium), so that the
-    logs say which level it reasoned with."""
-    try:
-        card = client.model_card()
-    except APIError:
-        return requested, ""        # without an admin key it can't be checked: sent as is
-    info = card.get("thinking") or {}
-    values = info.get("values") or []
-    levels = [v for v in values if isinstance(v, str)]
-    if "thinking" not in (card.get("capabilities") or []) or not values:
-        return ("no", "") if requested == "no" else \
-            (None, f"{client.model} does not reason: use --think no.")
-    if requested == "yes":
-        return (info["default"] if isinstance(info.get("default"), str) else "yes"), ""
-    if requested == "no" and False not in values:
-        return None, f"{client.model} does not allow disabling reasoning."
-    if requested == "no" or requested in levels:
-        return requested, ""
-    return None, (f"{client.model} does not support --think {requested}. Options: yes, no"
-                  + "".join(f", {n}" for n in levels) + ".")
-
-
 def pct_changes(quantity: str, quantities: list[dict[str, float]]) -> list[float]:
     """|% change| between every pair of values of the same quantity, in both directions.
 
@@ -386,7 +243,7 @@ def without_origin(data: dict, measured: dict[str, float], numbers: list[float],
     return missing
 
 
-def run_agent(client: OWUIClient, task: str, args, log: RunLog, wants_json: bool,
+def run_agent(provider: Provider, task: str, args, log: RunLog, wants_json: bool,
               num_ctx: int | None, measured: dict | None = None,
               derived: dict | None = None) -> dict:
     native = args.mode == "native"
@@ -395,15 +252,15 @@ def run_agent(client: OWUIClient, task: str, args, log: RunLog, wants_json: bool
     if not native:
         system += TEXT_MODE_PROMPT + json.dumps(
             [e["function"] for e in offered], ensure_ascii=False, indent=1)
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": task}]
-    options = model_options(client.model, think_value(args.think), num_ctx)
-    tools = offered if native else None
+    conv = provider.conversation(system, task, offered if native else None)
+    options = provider.request_extras(args.think, num_ctx)
     log.data.update(system=system, task=task, options=options, mode=args.mode)
     log.md_add("## System prompt\n\n" + block(system))
     log.md_add("## Task\n\n" + block(task))
 
     st = {"steps": 0, "calls": 0, "tool_errors": 0, "tool_use": {},
-          "max_input_tokens": 0, "output_tokens": 0, "llm_seconds": 0.0,
+          "max_input_tokens": 0, "input_tokens": 0, "cache_read_tokens": 0,
+          "output_tokens": 0, "llm_seconds": 0.0,
           "final": "", "json": None, "state": "max_steps", "warnings": [],
           "context": num_ctx}
     t_start = time.perf_counter()
@@ -416,29 +273,21 @@ def run_agent(client: OWUIClient, task: str, args, log: RunLog, wants_json: bool
     for step in range(1, args.max_steps + 1):
         st["steps"] = step
         t0 = time.perf_counter()
-        with Heartbeat(f"{client.model} thinking (step {step})"):
-            resp = client.chat(messages, tools, options)
+        with Heartbeat(f"{provider.model} thinking (step {step})"):
+            reply = provider.chat(conv, args.think, num_ctx)
         dt = time.perf_counter() - t0
         st["llm_seconds"] += dt
-        try:
-            msg = resp["choices"][0]["message"]
-        except (KeyError, IndexError, TypeError):
-            raise APIError(f"Unexpected reply from the server: {shorten(json.dumps(resp), 300)}")
-        raw = msg.get("content") or ""
-        content, thought = split_thinking(raw)
-        reasoning = "\n".join(x for x in (msg.get("reasoning_content") or
-                                          msg.get("reasoning") or "", thought) if x).strip()
-        usage = resp.get("usage") or {}
-        t_in = int(usage.get("prompt_tokens") or usage.get("prompt_eval_count") or 0)
-        t_out = int(usage.get("completion_tokens") or usage.get("eval_count") or 0)
-        speed = usage.get("response_token/s")
+        content, reasoning, usage = reply.content, reply.reasoning, reply.usage
+        t_in, t_out = usage.input, usage.output
         st["max_input_tokens"] = max(st["max_input_tokens"], t_in)
+        st["input_tokens"] += t_in
+        st["cache_read_tokens"] += usage.cache_read
         st["output_tokens"] += t_out
 
         # If the model was not loaded at the start, it is now: read the context the server
         # loaded it with (read-only; the options sent do not change)
         if step == 1 and not st["context"]:
-            st["context"] = loaded_context(client)
+            st["context"] = provider.loaded_context()
             if st["context"]:
                 print(c(f"    server context: {st['context']} tokens", GREY))
                 log.md_add(f"Context the server loaded the model with: {st['context']} tokens")
@@ -453,58 +302,44 @@ def run_agent(client: OWUIClient, task: str, args, log: RunLog, wants_json: bool
         prev_tokens = max(prev_tokens, t_in)
 
         # Tool calls: native or written as text
-        native_calls = msg.get("tool_calls") or []
-        calls = []
-        for tc in native_calls:
-            fn = tc.get("function", {})
-            a = fn.get("arguments", {})
-            if isinstance(a, str):
-                try:
-                    a_obj = json.loads(a) if a.strip() else {}
-                except json.JSONDecodeError:
-                    # Open WebUI parses this JSON again: never send a broken one back
-                    a_obj, a = a, "{}"
-            else:
-                a_obj, a = a, json.dumps(a, ensure_ascii=False)
-            calls.append({"id": tc.get("id") or f"call_{step}_{len(calls)}",
-                          "name": fn.get("name", "?"), "args": a_obj, "args_str": a})
+        calls = reply.tool_calls
         text_calls = [] if calls else calls_from_text(content)
         visible = _RE_TOOL_CALL.sub("", content).strip() if text_calls else content
 
-        line = (f"[{step}] model {fmt_dur(dt)} · input {fmt_tok(t_in)} tok · output "
-                f"{fmt_tok(t_out)} tok" + (f" ({speed} tok/s)" if speed not in (None, "N/A")
-                                           else ""))
+        cached = f" ({fmt_tok(usage.cache_read)} cached)" if usage.cache_read else ""
+        line = (f"[{step}] model {fmt_dur(dt)} · input {fmt_tok(t_in)} tok{cached} · output "
+                f"{fmt_tok(t_out)} tok" + (f" ({usage.speed} tok/s)"
+                                           if usage.speed not in (None, "N/A") else ""))
         print(c(line, GREY))
         if args.show_thinking and reasoning:
             print(c("    💭 " + shorten(reasoning, 1500).replace("\n", "\n       "), GREY))
         if visible and (calls or text_calls):
             print("    " + shorten(visible, 300).replace("\n", "\n    "))
 
-        log.md_add(f"## Step {step}\n\n{fmt_dur(dt)} · input {t_in} tok · output {t_out} tok")
+        log.md_add(f"## Step {step}\n\n{fmt_dur(dt)} · input {t_in} tok"
+                   + (f" ({usage.cache_read} cached)" if usage.cache_read else "")
+                   + f" · output {t_out} tok")
+        for n in reply.notes:
+            print(c(f"    ⚠ {n}", YELLOW))
+            log.md_add(f"> ⚠ {n}")
         if reasoning:
             log.md_add("<details><summary>Reasoning</summary>\n\n" + block(reasoning)
                        + "\n\n</details>")
         if visible:
             log.md_add(visible)
-        log.event(step=step, seconds=dt, usage=usage, reasoning=reasoning,
-                  content=raw, tool_calls=native_calls)
+        log.event(step=step, seconds=dt, usage=usage.raw, reasoning=reasoning,
+                  content=reply.raw_text,
+                  tool_calls=[{"id": t.id, "name": t.name, "arguments": t.args} for t in calls])
+        if reply.stop == "max_tokens":
+            st["warnings"].append(f"step {step}: the reply was cut at max_tokens (raise "
+                                  "max_tokens in the profile)")
+        if reply.stop == "refusal":
+            st.update(final=visible, state="refusal")
+            break
 
-        every = calls or [dict(x, id=None, args_str=json.dumps(x["args"], ensure_ascii=False)
-                               if x.get("args") is not None else "")
-                          for x in text_calls]
+        every = [{"call": t, "name": t.name, "args": t.args} for t in calls] or text_calls
         if every:
-            if calls:
-                messages.append({"role": "assistant", "content": content,
-                                 "tool_calls": [{"id": l["id"], "type": "function",
-                                                 "function": {"name": l["name"],
-                                                              "arguments": l["args_str"]
-                                                              if isinstance(l["args_str"], str)
-                                                              and l["args_str"].strip()
-                                                              else "{}"}}
-                                                for l in calls]})
-            else:
-                messages.append({"role": "assistant", "content": content})
-            replies = []
+            results, replies = [], []
             for l in every:
                 st["calls"] += 1
                 st["tool_use"][l["name"]] = st["tool_use"].get(l["name"], 0) + 1
@@ -542,12 +377,14 @@ def run_agent(client: OWUIClient, task: str, args, log: RunLog, wants_json: bool
                            + "\n\n**Result:**\n\n" + block(result))
                 log.event(step=step, tool=l["name"], arguments=l["args"], result=result)
                 if calls:
-                    messages.append({"role": "tool", "tool_call_id": l["id"],
-                                     "name": l["name"], "content": result})
+                    results.append((l["call"], result, result.startswith("ERROR")))
                 else:
                     replies.append(f"<tool_response>\n{result}\n</tool_response>")
-            if replies:
-                messages.append({"role": "user", "content": "\n".join(replies)})
+            conv.add_reply(reply)
+            if calls:
+                conv.add_tool_results(results)
+            else:
+                conv.add_user("\n".join(replies))
 
             # Loop detector: the same call with the same arguments 3 times
             last_signatures.append(json.dumps([(l["name"], l["args"]) for l in every],
@@ -558,7 +395,7 @@ def run_agent(client: OWUIClient, task: str, args, log: RunLog, wants_json: bool
                 notice = ("You have repeated the same call several times with the same result. "
                           "Change approach or, if you already have what you need, give the "
                           "final answer.")
-                messages.append({"role": "user", "content": notice})
+                conv.add_user(notice)
                 print(c("    ⚠ loop detected: asking it to change approach", YELLOW))
                 log.md_add(f"> ⚠ {notice}")
             continue
@@ -567,9 +404,9 @@ def run_agent(client: OWUIClient, task: str, args, log: RunLog, wants_json: bool
         if not visible:
             if nudges["empty"] < 2:
                 nudges["empty"] += 1
-                messages.append({"role": "assistant", "content": ""})
-                messages.append({"role": "user", "content": "Your reply was empty. Continue: use "
-                                 "a tool or give the final answer."})
+                conv.add_reply(reply)
+                conv.add_user("Your reply was empty. Continue: use a tool or give the final "
+                              "answer.")
                 print(c("    ⚠ empty reply, asking it to continue", YELLOW))
                 continue
             st["state"] = "empty"
@@ -577,10 +414,10 @@ def run_agent(client: OWUIClient, task: str, args, log: RunLog, wants_json: bool
         data = extract_final_json(visible) if wants_json else None
         if wants_json and data is None and nudges["json"] < 1:
             nudges["json"] += 1
-            messages.append({"role": "assistant", "content": visible})
-            messages.append({"role": "user", "content": "The final ```json block with the "
-                             "requested fields is missing. Repeat your final answer including "
-                             "it; there is no need to simulate again."})
+            conv.add_reply(reply)
+            conv.add_user("The final ```json block with the requested fields is missing. "
+                          "Repeat your final answer including it; there is no need to simulate "
+                          "again.")
             print(c("    ⚠ JSON block missing, reminding it", YELLOW))
             continue
         # The results it reports must come from its own simulations
@@ -597,8 +434,8 @@ def run_agent(client: OWUIClient, task: str, args, log: RunLog, wants_json: bool
                     notice += (f" {field} is the % change of {quantity} between two simulations "
                                "of yours: simulate the two cases the task compares and compute "
                                "it from the values they return.")
-            messages.append({"role": "assistant", "content": visible})
-            messages.append({"role": "user", "content": notice})
+            conv.add_reply(reply)
+            conv.add_user(notice)
             print(c(f"    ⚠ results without origin in its simulations ({', '.join(missing)}): "
                     "asking it to measure them", YELLOW))
             log.md_add(f"> ⚠ {notice}")
@@ -634,18 +471,34 @@ _CODE: str | None = None
 
 
 def code_version() -> str:
-    """Code commit ('a1b2c3d', with '+changes' if there are uncommitted changes)."""
+    """Code commit: 'a1b2c3d' (with '+changes' if there are uncommitted changes) when it runs
+    from a clone; 'a1b2c3d (installed)' when pip installed it from git; else 'no git'."""
     global _CODE
     if _CODE is None:
-        try:
-            h = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=DIR, text=True,
-                               capture_output=True, timeout=5).stdout.strip()
-            dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
-                                   cwd=DIR, text=True, capture_output=True, timeout=5).stdout
-            _CODE = (h + ("+changes" if dirty.strip() else "")) if h else "no git"
-        except (OSError, subprocess.SubprocessError):
-            _CODE = "no git"
+        source = (DIR.parent / "pyproject.toml").exists()
+        _CODE = (git_commit() if source else installed_commit()) or "no git"
     return _CODE
+
+
+def git_commit() -> str | None:
+    try:
+        h = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=DIR, text=True,
+                           capture_output=True, timeout=5).stdout.strip()
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
+                               cwd=DIR, text=True, capture_output=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return (h + ("+changes" if dirty.strip() else "")) if h else None
+
+
+def installed_commit() -> str | None:
+    """The commit pip installed this copy from (direct_url.json, PEP 610), if it knows it."""
+    try:
+        text = importlib.metadata.distribution("vibespice").read_text("direct_url.json")
+        commit = (json.loads(text or "{}").get("vcs_info") or {}).get("commit_id") or ""
+    except (importlib.metadata.PackageNotFoundError, ValueError, OSError, AttributeError):
+        return None
+    return f"{commit[:7]} (installed)" if commit else None
 
 
 def append_csv(row: dict) -> None:
@@ -665,16 +518,18 @@ def append_csv(row: dict) -> None:
         w.writerow({k: (f"{v:.1f}" if isinstance(v, float) else v) for k, v in row.items()})
 
 
-def run_once(client, task, challenge, args, label, num_ctx, n_rep=None) -> dict:
+def run_once(provider: Provider, task, challenge, args, label, num_ctx, n_rep=None) -> dict:
     log = RunLog(label + (f"_rep{n_rep}" if n_rep else ""))
     tools = [e["function"]["name"] for e in hs.schemas()]
     batch = getattr(args, "batch_kind", "single")
-    log.data.update(model=client.model, think=args.think, num_ctx=num_ctx,
+    log.data.update(provider=provider.name, model=provider.model, think=args.think,
+                    num_ctx=num_ctx,
                     challenge=challenge.id if challenge else None,
                     start=datetime.now().isoformat(), version=__version__,
                     code=code_version(), batch=batch, tools=tools)
     log.md_add(f"# {challenge.title if challenge else 'Free task'}\n\n"
-               f"- Date: {datetime.now():%Y-%m-%d %H:%M}\n- Model: `{client.model}`\n"
+               f"- Date: {datetime.now():%Y-%m-%d %H:%M}\n- Provider: {provider.label} · "
+               f"Model: `{provider.model}`\n"
                f"- Reasoning: {args.think} · Tool mode: {args.mode} · "
                f"Context: {num_ctx or 'server default'}\n- Tools: "
                + ", ".join(tools) + f"\n- Version: {__version__} · Code: {code_version()} · "
@@ -682,11 +537,12 @@ def run_once(client, task, challenge, args, label, num_ctx, n_rep=None) -> dict:
     title = challenge.title if challenge else "Free task"
     rep = f" · repetition {n_rep}" if n_rep else ""
     print(c(f"\n═══ {title}{rep} ═══", BOLD))
-    print(c(f"model {client.model} · reasoning: {args.think} · tools: {args.mode}"
-            f" · context: {num_ctx or 'the server default'}", GREY))
+    print(c(f"{provider.name} · model {provider.model} · reasoning: {args.think} · tools: "
+            f"{args.mode}" + (f" · context: {num_ctx or 'the server default'}"
+                              if provider.supports_num_ctx else ""), GREY))
     final_state, st = "ERROR", None
     try:
-        st = run_agent(client, task, args, log, wants_json=challenge is not None,
+        st = run_agent(provider, task, args, log, wants_json=challenge is not None,
                        num_ctx=num_ctx, measured=challenge.measured if challenge else None,
                        derived=challenge.derived if challenge else None)
         print(c("─" * 60, GREY))
@@ -707,8 +563,11 @@ def run_once(client, task, challenge, args, label, num_ctx, n_rep=None) -> dict:
             uses += f" ({st['tool_errors']} with errors)"
         print(c(f"Result: {final_state}", color + ";1") +
               f"  ({st['steps']} steps · tools: {uses} · {fmt_dur(st['seconds'])} · "
-              f"max input {fmt_tok(st['max_input_tokens'])} tok · total output "
-              f"{fmt_tok(st['output_tokens'])} tok)")
+              f"max input {fmt_tok(st['max_input_tokens'])} tok · total input "
+              f"{fmt_tok(st['input_tokens'])} tok"
+              + (f" ({fmt_tok(st['cache_read_tokens'])} cached)" if st["cache_read_tokens"]
+                 else "")
+              + f" · total output {fmt_tok(st['output_tokens'])} tok)")
         if not st["tool_use"]:
             print(c("  ⚠ Used no tools: its numbers do not come from the simulator.", YELLOW))
         for a in st["warnings"]:
@@ -731,12 +590,15 @@ def run_once(client, task, challenge, args, label, num_ctx, n_rep=None) -> dict:
         append_csv({
             "date": f"{datetime.now():%Y-%m-%d %H:%M:%S}",
             "challenge": challenge.id if challenge else "free",
-            "model": client.model, "think": args.think, "mode": args.mode,
+            "provider": provider.name, "model": provider.model, "think": args.think,
+            "mode": args.mode,
             "context": (st or {}).get("context") or num_ctx or "", "result": final_state,
             "steps": st["steps"] if st else "", "calls": st["calls"] if st else "",
             "tool_errors": st["tool_errors"] if st else "",
             "seconds": float(st["seconds"]) if st else "",
             "max_input_tokens": st["max_input_tokens"] if st else "",
+            "input_tokens": st["input_tokens"] if st else "",
+            "cache_read_tokens": st["cache_read_tokens"] if st else "",
             "output_tokens": st["output_tokens"] if st else "",
             "log": log.md.name, "batch": batch, "version": __version__,
             "code": code_version(),
