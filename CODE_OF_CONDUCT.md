@@ -36,7 +36,9 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at [INSERT CONTACT METHOD]. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement at [mauronosewhat@gmail.com](mailto:mauronosewhat@gmail.com). All complaints will be reviewed and investigated promptly and fairly.
+
+In this project, the community leader is the maintainer, who moderates the repository with GitHub's own tools: hiding, editing or deleting comments, locking conversations, limiting interactions for a time and blocking users. You can also report an issue, pull request or comment to GitHub itself: in its menu (**⋯**), choose **Report content** and then **Report abuse to GitHub Support**. That report goes to GitHub's staff, not to the maintainer, and is handled under the [GitHub Community Guidelines](https://docs.github.com/en/site-policy/github-terms/github-community-guidelines).
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 
