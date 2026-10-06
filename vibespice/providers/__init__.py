@@ -2,7 +2,7 @@
 # Copyright 2026 Mauro Rodriguez Blasco
 # Additional term under section 7(b) of the license: see NOTICE.
 """
-The servers and APIs vibespice can use (the provider of a profile):
+The servers and APIs VibeSPICE can use (the provider of a profile):
 
 - openwebui  Open WebUI, which forwards to Ollama (reasoning levels, loaded models)
 - openai     any OpenAI-compatible API: OpenAI, OpenRouter, Ollama's /v1, vLLM, LM Studio...

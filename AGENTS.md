@@ -5,7 +5,7 @@ on this repository.
 
 ## What this is
 
-vibespice is an agent that designs and simulates analog circuits from a prompt
+VibeSPICE is an agent that designs and simulates analog circuits from a prompt
 (`vibespice run`). It talks to a language model through its API (Claude, any
 OpenAI-compatible API or Open WebUI) and runs ngspice locally, in a loop, until the model
 gives a final answer. It also has a benchmark (`vibespice bench`): challenges whose answers
@@ -54,6 +54,9 @@ command once installed):
 - **Anything served over a network must link to its source code** (section 13 of the
   AGPL). The planned web app shows that link, and `vibespice --version` prints it.
 - **English everywhere**: code, identifiers, comments, messages, prompts and docs.
+- **The name is VibeSPICE** wherever people read it: docs, messages, titles, prompts.
+  `vibespice`, in lower case, only where it is an identifier: the command, the package,
+  paths, `VIBESPICE_*` variables, the MCP server key and URLs.
 - **Nothing personal lives in the repository.** The configuration, with the API key, is
   `~/.config/vibespice/config.toml` and the logs go to `~/.local/share/vibespice/logs/`.
   Never commit either; `config.toml` and `logs/` are in `.gitignore` in case someone points

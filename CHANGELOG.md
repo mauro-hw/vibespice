@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The public name is now **VibeSPICE** (SPICE is an acronym). The command, the package, the
+  folders, the `VIBESPICE_*` variables and the MCP server key stay `vibespice`. The name
+  changes in the docs, the menu, `init`, `--version`, the desktop notification and in what
+  `vibespice mcp` tells chat apps: the server title and the first and last lines of its
+  instructions to the model (a prompt change; nothing else in them changed).
+
 ## [0.1.0] - 2026-10-06
 
 First public version. Nothing was released before it, so this list describes everything

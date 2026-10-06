@@ -197,7 +197,7 @@ class AnthropicProvider(Provider):
         off = [] if self.model.startswith(ALWAYS_THINKS) else ["no"]
         lines = [f"{info.get('display_name', self.model)}: context "
                  f"{info.get('max_input_tokens', '?')} tokens · up to "
-                 f"{info.get('max_tokens', '?')} output tokens (vibespice asks for "
+                 f"{info.get('max_tokens', '?')} output tokens (VibeSPICE asks for "
                  f"{self.max_tokens or DEFAULT_MAX_TOKENS})",
                  "reasoning (--think): " + ", ".join(["yes"] + off + levels)
                  + (" · yes = high" if "high" in levels else ""),

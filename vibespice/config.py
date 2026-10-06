@@ -47,7 +47,7 @@ KEY_HELP = {
     "openwebui": "create one in Open WebUI, Settings > Account > API Keys (it starts with sk-)",
 }
 
-HEADER = """# vibespice configuration.
+HEADER = """# VibeSPICE configuration.
 # Keep this file private: it can hold API keys (chmod 600). Change it with any text editor,
 # or run "vibespice init" again to add another model or API.
 # Environment variables take priority over it: VIBESPICE_PROFILE, VIBESPICE_PROVIDER,

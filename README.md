@@ -1,26 +1,26 @@
-# vibespice
+# VibeSPICE
 
 **Describe a circuit in plain words: a language model designs it and checks it with a real
 SPICE simulator (ngspice), on your computer.**
 
 You write something like *"Design a 24 V to 3.3 V divider with E12 resistors and give me the
 worst case with 5 % tolerance"*. The model (Claude, a model from OpenAI or OpenRouter, or one
-running on your own server) proposes a circuit and asks for a simulation. vibespice runs
+running on your own server) proposes a circuit and asks for a simulation. VibeSPICE runs
 ngspice on your computer and sends the result back. The model adjusts the design and
 simulates again, as many times as it needs, until it gives its final answer. Everything is
 saved: its reasoning, every netlist and every result.
 
-vibespice also includes a **benchmark**: eight design challenges whose answers it **checks on
+VibeSPICE also includes a **benchmark**: eight design challenges whose answers it **checks on
 its own**, by simulating them again, to measure how well a model does this job.
 
-**No API key?** If you use Claude, ChatGPT or Gemini with your own account, vibespice can
+**No API key?** If you use Claude, ChatGPT or Gemini with your own account, VibeSPICE can
 lend its tools to the app you already use: see
 [Without an API key](#without-an-api-key-from-your-chat-app).
 
 ```
  the model (Claude API, any OpenAI-compatible API or Open WebUI)
         ⇅  it asks for simulations and gets their results
- vibespice (your computer)  ⇄  ngspice
+ VibeSPICE (your computer)  ⇄  ngspice
 ```
 
 ---
@@ -51,7 +51,7 @@ A few words used below:
 
 ## 1. Getting started (about 15 minutes)
 
-vibespice is made for **Linux** and **macOS**, and for **Windows through WSL** (a Linux
+VibeSPICE is made for **Linux** and **macOS**, and for **Windows through WSL** (a Linux
 inside Windows, see step 1). So far it has been tried on Fedora and Ubuntu, with Python 3.11
 to 3.14 and ngspice 42 and 47; on macOS and WSL, not yet. If you try it there, please
 [tell us](https://github.com/mauro-hw/vibespice/issues) how it went.
@@ -67,7 +67,7 @@ to 3.14 and ngspice 42 and 47; on macOS and WSL, not yet. If you try it there, p
 
 ### Step 2. Install Python, ngspice and pipx
 
-pipx is the tool that installs vibespice as a command. Type the line for your system:
+pipx is the tool that installs VibeSPICE as a command. Type the line for your system:
 
 | System | Command |
 |---|---|
@@ -84,17 +84,17 @@ pipx ensurepath
 
 and **close the terminal and open a new one**, so that it finds the commands you install.
 
-> vibespice needs Python 3.11 or newer; `python3 --version` tells you which one you have.
+> VibeSPICE needs Python 3.11 or newer; `python3 --version` tells you which one you have.
 > Ubuntu 22.04 comes with 3.10, which is too old.
 
-### Step 3. Install vibespice
+### Step 3. Install VibeSPICE
 
 ```bash
 pipx install git+https://github.com/mauro-hw/vibespice
 vibespice selftest
 ```
 
-The second command tests ngspice and vibespice without any model. It should end with
+The second command tests ngspice and VibeSPICE without any model. It should end with
 **Self-test passed.**
 
 ### Step 4. Get an API key
@@ -112,7 +112,7 @@ The quickest way is the **Claude API**:
 Do you have another API (OpenAI, OpenRouter) or a model on your own computer (Ollama) or
 server (Open WebUI)? You can use it instead: see [section 3](#3-other-models-and-apis).
 
-### Step 5. Tell vibespice which model to use
+### Step 5. Tell VibeSPICE which model to use
 
 ```bash
 vibespice init
@@ -123,7 +123,7 @@ It asks three things and checks them as you go:
    Open WebUI. For Claude, just press Enter.
 2. **Your key.** Paste it: Ctrl+Shift+V in most Linux terminals, Cmd+V on macOS, right
    click on Windows. **Nothing shows on screen while you paste it**, on purpose; press Enter
-   afterwards. vibespice tries it straight away and tells you if it is wrong.
+   afterwards. VibeSPICE tries it straight away and tells you if it is wrong.
 3. **The model**, from the list your API offers. For Claude it suggests `claude-opus-5-5`:
    press Enter to take it.
 
@@ -174,7 +174,7 @@ delete those folders if you want them gone too.
 ### Without an API key: from your chat app
 
 Do you use Claude, ChatGPT or Gemini with your own account? Then you don't need an API:
-vibespice can lend its tools to the app you already use, and the app's model uses them. You
+VibeSPICE can lend its tools to the app you already use, and the app's model uses them. You
 talk to it in the app as usual, and ngspice still runs on your computer.
 
 ```
@@ -183,7 +183,7 @@ talk to it in the app as usual, and ngspice still runs on your computer.
  vibespice mcp (your computer)  ⇄  ngspice
 ```
 
-1. Do steps 1 to 3: Python, ngspice and vibespice.
+1. Do steps 1 to 3: Python, ngspice and VibeSPICE.
 2. Type `vibespice mcp`. In a terminal it starts nothing: it shows what to add to each app,
    with the paths of your computer already filled in.
 3. Add it to your app, the way it says:
@@ -196,21 +196,21 @@ talk to it in the app as usual, and ngspice still runs on your computer.
    | Gemini CLI | Google | `gemini mcp add --scope user vibespice …/vibespice mcp` |
 
 4. Open a new chat and ask for a circuit, for example *"Design a 12 V to 5 V divider with
-   E24 resistors and check it with vibespice"*. The app may ask your permission the first
+   E24 resistors and check it with VibeSPICE"*. The app may ask your permission the first
    time it uses each tool.
 
 So far it has been tried with Claude Code on Linux. Claude Desktop, Codex and Gemini CLI
 work the same way, but nobody has tried them yet: if you do, please [tell us](https://github.com/mauro-hw/vibespice/issues)
 how it went, with what you saw if something failed.
 
-On Windows, install vibespice in WSL (step 1) and type `vibespice mcp` there: the block it
-shows makes Claude Desktop, on Windows, start vibespice inside WSL.
+On Windows, install VibeSPICE in WSL (step 1) and type `vibespice mcp` there: the block it
+shows makes Claude Desktop, on Windows, start VibeSPICE inside WSL.
 
 The web versions (claude.ai, chatgpt.com) only connect to servers on the internet, so they
 can't reach `vibespice mcp` on your computer: use one of the apps above.
 
 **What changes compared with `vibespice run`:**
-- The app's model runs the loop, with the app's own instructions. vibespice gives it the
+- The app's model runs the loop, with the app's own instructions. VibeSPICE gives it the
   same tools and safety limits (section 5) and the netlist rules, but it doesn't save the
   conversation: the app keeps it. Ask the model for the final netlist to check it yourself.
 - There is no automatic verification and no benchmark: `vibespice bench` needs an API, so
@@ -259,7 +259,7 @@ that folder, type `xdg-open ~/.local/share/vibespice/logs` (Linux) or
 - **`summary.csv`**: one row per run (provider, model, task or challenge, result, steps,
   time, tokens, version), ready for a spreadsheet.
 
-**Check the numbers of a free task yourself.** vibespice verifies the challenges on its own
+**Check the numbers of a free task yourself.** VibeSPICE verifies the challenges on its own
 (section 4), but it cannot know what a free task should give. Every netlist is in the log,
 ready to run again in ngspice.
 
@@ -267,7 +267,7 @@ ready to run again in ngspice.
 
 With a paid API, every step is a request that carries the whole conversation so far. A run
 costs from a few cents to a couple of dollars, depending on the model and on how many steps
-it takes. With the Claude API, vibespice turns on prompt caching, which makes the repeated
+it takes. With the Claude API, VibeSPICE turns on prompt caching, which makes the repeated
 part much cheaper. Each run ends with its token count (`total input … tok (… cached) · total
 output … tok`), and `summary.csv` keeps it. To spend less with Claude, use the model
 `claude-sonnet-5-5` instead of `claude-opus-5-5` (half the price, see section 3) or lower the
@@ -322,11 +322,11 @@ exact name of a model, leave `model = ""`: `vibespice check` lists the ones avai
 
 The model must be able to **call tools**; most recent models can, and `vibespice check` tells
 you. This file is never shared or uploaded: it stays on your computer, and so do your
-results. Each person who uses vibespice creates their own.
+results. Each person who uses VibeSPICE creates their own.
 
 ### Claude API
 
-vibespice keeps the conversation exactly as the API returns it, turns on prompt caching and
+VibeSPICE keeps the conversation exactly as the API returns it, turns on prompt caching and
 sets the reasoning with the effort level (`--think`). Each reply is capped at `max_tokens`
 (16000 by default). If a model declines a request, the fallback model Anthropic recommends
 continues, on the models that offer it; `fallbacks = false` in the profile turns that off.
@@ -334,7 +334,7 @@ Claude Opus 5.5 always reasons, so `--think no` is not accepted: use `--think lo
 
 ### OpenAI and compatible APIs (OpenRouter, Ollama, LM Studio…)
 
-vibespice sends the standard chat format. `--think LEVEL` goes as `reasoning_effort`, if the
+VibeSPICE sends the standard chat format. `--think LEVEL` goes as `reasoning_effort`, if the
 server accepts it; there is no standard way to turn reasoning off. For the qwen3 families it
 also sends the sampling their vendor recommends (temperature, top_p and presence_penalty).
 
@@ -354,15 +354,15 @@ Two steps on the server:
    `/ollama/api/show`.
 2. Go to your user, *Settings → Account → API Keys*, and create one. It starts with `sk-`.
 
-An admin key also lets vibespice see which model is loaded and with which context
+An admin key also lets VibeSPICE see which model is loaded and with which context
 (`status`, `check`, `--num-ctx auto`) and read each model's reasoning levels. Without one,
-everything else still works. vibespice uses the sampling each model family's vendor
+everything else still works. VibeSPICE uses the sampling each model family's vendor
 recommends (qwen3: 0.6 / 0.95 / 20 with reasoning and 0.7 / 0.8 / 20 without; qwen3.8:
 temperature 1.0 with reasoning and 0.7 with `presence_penalty` 1.5 without); for a family it
 does not know, those of its Modelfile.
 
 **⚠ If other people share the server:**
-- **Context.** If vibespice asked for a different `num_ctx` from the one other users get,
+- **Context.** If VibeSPICE asked for a different `num_ctx` from the one other users get,
   Ollama would reload the model every time your requests alternate. That is why
   `--num-ctx auto`, the default, copies the one already loaded. Change it only if you know
   nobody else is using the model.
@@ -370,7 +370,7 @@ does not know, those of its Modelfile.
   from one to several minutes, and if the server handles one request at a time, others wait
   behind you. Run long batches (`bench all --repeat 5`) off-peak.
 - **Parameters set in Open WebUI.** If the model has parameters set in its Open WebUI
-  configuration, those values **override** vibespice's.
+  configuration, those values **override** VibeSPICE's.
 
 ### Other settings
 
@@ -411,7 +411,7 @@ The formula for challenge 2, with a = R2/(R1+R2) = 5/12, is
 
   worst_error = 2·t·(1−a) / (1 + t·(2a−1)) = 2 % → t = 1.7094 %
 
-**How it is scored.** The model ends each challenge with a JSON block. vibespice simulates
+**How it is scored.** The model ends each challenge with a JSON block. VibeSPICE simulates
 what it proposes again and compares it with the specification. It also checks that the
 figures the model reports match the simulation. In addition, in challenges 0, 1, 6 and 7 the
 results it reports (voltage, current, fc, Ic, Vce) must come from **its own** successful
@@ -523,7 +523,7 @@ Type `vibespice <command> -h` for the options of each one.
 | `--num-ctx auto/N` | Open WebUI only. *auto* (default) uses the context the server already has the model loaded with (section 3) |
 | `--show-thinking` | Shows the reasoning on screen (it is always in the log) |
 
-**Following a long batch.** Before it starts, vibespice tells you how long each run usually
+**Following a long batch.** Before it starts, VibeSPICE tells you how long each run usually
 takes according to your history and when it will finish. While the model thinks, a line
 updates every 5 s (⏳), and after each run you see what is left (⏱). At the end, a desktop
 notification. While it works, the computer does not suspend by itself when idle and, with
@@ -543,7 +543,7 @@ suspend it by hand; on battery, closing the lid does suspend it. If it suspends,
 | `HTTP 402` | No credit left: add it in your provider's console (for Claude, the Claude Console). A Claude Pro or Max subscription does not include the API |
 | `HTTP 403` | The key has no permission for that model. With Open WebUI: *Enable API Keys* off, *API Key Endpoint Restrictions* on, or a key without admin rights (section 3) |
 | `HTTP 404` or "is not listed" | `url` is wrong, or `model` does not match the exact name (`check` lists the available ones) |
-| `HTTP 429`, `529` or `503` and "retrying" | Rate limit or busy server: vibespice waits and retries up to 4 times, as long as the server asks. If it still fails, wait a bit or lower the pace (fewer repetitions) |
+| `HTTP 429`, `529` or `503` and "retrying" | Rate limit or busy server: VibeSPICE waits and retries up to 4 times, as long as the server asks. If it still fails, wait a bit or lower the pace (fewer repetitions) |
 | "Can't connect" | Wrong URL or port, you are not on the server's network, or a firewall is in the way. Try the same URL in a browser |
 | Certificate error (HTTPS) | Put the path of your CA's certificate in `ca`, in your profile |
 | "did not call the tool" in `check` | Use `--mode text` |
@@ -553,7 +553,7 @@ suspend it by hand; on battery, closing the lid does suspend it. If it suspends,
 | "the model declined to answer" | The API's safety classifiers refused the request; the log says the category. Reword the task |
 | "possible context truncation" | With your own server: the conversation does not fit in its `num_ctx`. Raise it in the model's configuration (carefully, section 3) |
 | `ngspice executable not found` | Install ngspice (step 2) or set its path in `ngspice`, in the configuration file. In a chat app, use the block that `vibespice mcp` shows: it has the full path of ngspice |
-| The chat app does not show the vibespice tools | Quit the app completely and open it again. Check that the paths in its configuration are the ones `vibespice mcp` shows; they change if you reinstall Python or vibespice somewhere else |
+| The chat app does not show the VibeSPICE tools | Quit the app completely and open it again. Check that the paths in its configuration are the ones `vibespice mcp` shows; they change if you reinstall Python or VibeSPICE somewhere else |
 | A tool "timed out" in a chat app | A long Monte Carlo: ask for fewer samples, or give the app more time (Codex: `tool_timeout_sec`, section 1, *Without an API key*) |
 | The self-test fails on some value | Please open an issue with the output: it may be a format change between ngspice versions |
 
@@ -580,7 +580,7 @@ suspend it by hand; on battery, closing the lid does suspend it. If it suspends,
 
 ## 7. Versions and license
 
-vibespice follows [Semantic Versioning](https://semver.org/), and every change is described in
+VibeSPICE follows [Semantic Versioning](https://semver.org/), and every change is described in
 [CHANGELOG.md](CHANGELOG.md). Each run records in its log the version (`--version`) and the
 git commit of the code, with `+changes` if there were uncommitted changes (a copy installed
 with pipx from GitHub records the commit it was installed from), so results can always be
@@ -591,7 +591,7 @@ and real models. `pipx install git+https://github.com/mauro-hw/vibespice` instal
 latest code; to install a given version, add its tag:
 `pipx install git+https://github.com/mauro-hw/vibespice@v0.1.0`.
 
-Copyright 2026 Mauro Rodriguez Blasco. vibespice is free software under the GNU Affero
+Copyright 2026 Mauro Rodriguez Blasco. VibeSPICE is free software under the GNU Affero
 General Public License, version 3 only (AGPL-3.0-only): see [LICENSE](LICENSE) and
 [NOTICE](NOTICE).
 

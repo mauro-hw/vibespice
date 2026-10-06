@@ -76,7 +76,7 @@ def notify_done(title: str, text: str) -> None:
         return
     if shutil.which("notify-send"):
         try:
-            subprocess.run(["notify-send", "-a", "vibespice", title, text],
+            subprocess.run(["notify-send", "-a", "VibeSPICE", title, text],
                            capture_output=True, timeout=5)
         except (OSError, subprocess.SubprocessError):
             pass
@@ -109,14 +109,14 @@ def keep_awake() -> str:
     if "GNOME" in os.environ.get("XDG_CURRENT_DESKTOP", "") \
             and shutil.which("gnome-session-inhibit"):
         commands.append(["gnome-session-inhibit", "--inhibit", "suspend", "--app-id", "vibespice",
-                         "--reason", "vibespice batch running", *wait])
+                         "--reason", "VibeSPICE batch running", *wait])
     elif shutil.which("systemd-inhibit"):
-        commands.append(["systemd-inhibit", "--what=sleep", "--who=vibespice",
-                         "--why=vibespice batch running", *wait])
+        commands.append(["systemd-inhibit", "--what=sleep", "--who=VibeSPICE",
+                         "--why=VibeSPICE batch running", *wait])
     lid = on_mains_power() and shutil.which("systemd-inhibit")
     if lid:
-        commands.append(["systemd-inhibit", "--what=handle-lid-switch", "--who=vibespice",
-                         "--why=vibespice batch running", *wait])
+        commands.append(["systemd-inhibit", "--what=handle-lid-switch", "--who=VibeSPICE",
+                         "--why=VibeSPICE batch running", *wait])
     done = 0
     for command in commands:
         try:
