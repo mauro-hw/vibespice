@@ -125,3 +125,6 @@ the relevant logs or output when it matters.
 
 - Small, focused commits with a message that explains why, not only what.
 - Work in branches; `main` stays stable and passing.
+- Coding agents may commit, push their branch and open a pull request without asking.
+  They never push to `main` and never merge on their own: the maintainer approves every
+  merge, and an agent merges a pull request only when the maintainer says so for that one.
