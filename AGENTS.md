@@ -39,6 +39,9 @@ command once installed):
 - `tests/`: a fake LLM server that speaks the three APIs (Open WebUI, OpenAI-compatible
   and Claude), with a scripted "model", a scripted MCP client and end-to-end tests.
 - `CHANGELOG.md`: what changed in each version.
+- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` and `.github/ISSUE_TEMPLATE/`,
+  `.github/pull_request_template.md`: for people who contribute. Keep `CONTRIBUTING.md` and
+  the pull request checklist in step with the rules below.
 
 ## Rules
 
@@ -112,7 +115,8 @@ the relevant logs or output when it matters.
   a user would notice gets a line under `## [Unreleased]` **in the same commit**.
 - To release: set `__version__` (for example `0.1.0`), rename `## [Unreleased]` to
   `## [0.1.0] - YYYY-MM-DD`, say under it what the version has been tried with (systems,
-  apps, real models; and what not yet), open a new empty `## [Unreleased]`, commit, then tag
+  apps, real models, counting the compatibility reports opened since the last release; and
+  what not yet), open a new empty `## [Unreleased]`, commit, then tag
   `v0.1.0` and push the tag. After the release, move `__version__` to the next `.dev0`.
 - While the version is `0.x`, minor versions may change the CLI, the log format or the tool
   names; say so in the changelog.

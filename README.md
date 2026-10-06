@@ -39,6 +39,7 @@ lend its tools to the app you already use: see
 5. [What the model can do](#5-what-the-model-can-do-and-what-it-cant): tools and safety limits
 6. [Reference](#6-reference): commands, options, troubleshooting, files
 7. [Versions and license](#7-versions-and-license)
+8. [Contributing](#8-contributing): trying it, reporting bugs, suggesting ideas
 
 A few words used below:
 
@@ -577,6 +578,8 @@ suspend it by hand; on battery, closing the lid does suspend it. If it suspends,
 | `pyproject.toml` | Package metadata, so it can be installed with pipx or pip |
 | `tests/` | Tests without any model: a fake server, with a scripted "model", that speaks the three APIs, and a scripted MCP client |
 | `AGENTS.md` | Project rules for contributors and coding agents |
+| `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` | How to contribute, the code of conduct and how to report a security problem |
+| `.github/` | Tests on GitHub Actions, and the forms for issues and pull requests |
 | `CHANGELOG.md` | What changed in each version |
 | `LICENSE`, `NOTICE` | License (AGPL-3.0-only) and attribution notice |
 
@@ -607,3 +610,17 @@ In short (the license is what counts):
 - Keep the copyright and the attribution in `NOTICE` (an additional term under section 7(b))
   and mark the files you changed.
 - It comes with no warranty.
+
+---
+
+## 8. Contributing
+
+The most useful help right now needs no programming: try VibeSPICE where nobody has yet
+(macOS, WSL, Claude Desktop, Codex, Gemini CLI, models other than the ones in the
+changelog) and [tell us how it went](https://github.com/mauro-hw/vibespice/issues/new/choose),
+whether it worked or not. Bugs and ideas are welcome too. For now the code is written by
+the maintainer, so pull requests from outside the project are not accepted: see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). Security problems
+are reported privately: see [SECURITY.md](SECURITY.md).

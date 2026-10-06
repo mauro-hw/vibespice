@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- For people who want to help: a contributing guide (for now, the code is written only by
+  the maintainer and their coding agents), a code of conduct (Contributor Covenant 2.1), a
+  security policy with private reporting, and forms for bug reports, compatibility reports
+  ("I tried it on…") and feature requests, plus a pull request checklist.
+
 ### Changed
 
 - The public name is now **VibeSPICE** (SPICE is an acronym). The command, the package, the
