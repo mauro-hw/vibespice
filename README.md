@@ -1,5 +1,9 @@
 # VibeSPICE
 
+[![tests](https://github.com/mauro-hw/vibespice/actions/workflows/tests.yml/badge.svg)](https://github.com/mauro-hw/vibespice/actions/workflows/tests.yml)
+[![Python 3.11 to 3.14](https://img.shields.io/badge/python-3.11%20to%203.14-blue)](#step-2-install-python-ngspice-and-pipx)
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](#7-versions-and-license)
+
 **Describe a circuit in plain words: a language model designs it and checks it with a real
 SPICE simulator (ngspice), on your computer.**
 
