@@ -12,6 +12,8 @@ Tools:
   - analyze_tolerances   corners or Monte Carlo over a netlist
   - standard_values      nearest E3...E96 values to a given one
   - calculate            safe calculator (LLMs are bad at mental arithmetic)
+
+A program built on vibespice can offer more tools with register_tool() (see ExtraTool).
 """
 from __future__ import annotations
 
@@ -27,6 +29,8 @@ import subprocess
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Callable
 
 NGSPICE = "ngspice"       # the executable; the configuration can change it
 SIM_TIMEOUT = 30          # seconds per simulation
@@ -986,8 +990,9 @@ SCHEMAS = [
 
 
 def schemas() -> list[dict]:
-    """Tools offered to the model on this machine."""
-    return list(SCHEMAS)
+    """Tools offered to the model on this machine: the built-in ones and the available extra
+    ones."""
+    return list(SCHEMAS) + [t.schema for t in _extras()]
 
 
 _DISPATCH = {
@@ -998,11 +1003,60 @@ _DISPATCH = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Extra tools: the ones a program built on vibespice registers
+# ---------------------------------------------------------------------------
+@dataclass
+class ExtraTool:
+    """A tool registered with register_tool(), offered after the built-in ones.
+
+    run() gets the arguments as keywords and returns the text for the model, like the
+    built-in tools (run_tool turns an exception into an ERROR). available() says whether it
+    can be offered on this machine. simulations() returns the simulate_data() dicts of its
+    last run, so the values it simulated count for the origin check. hint is one line for
+    the "How to work" part of the system prompt."""
+    schema: dict
+    run: Callable[..., str]
+    available: Callable[[], bool] = lambda: True
+    simulations: Callable[[], list[dict]] | None = None
+    hint: str = ""
+
+    @property
+    def name(self) -> str:
+        return self.schema["function"]["name"]
+
+
+EXTRA_TOOLS: dict[str, ExtraTool] = {}
+
+
+def register_tool(tool: ExtraTool) -> None:
+    if tool.name in _DISPATCH:
+        raise ValueError(f"'{tool.name}' is a built-in tool")
+    EXTRA_TOOLS[tool.name] = tool
+
+
+def _extras() -> list[ExtraTool]:
+    return [t for t in EXTRA_TOOLS.values() if t.available()]
+
+
+def hints() -> list[str]:
+    """System prompt lines of the extra tools offered."""
+    return [t.hint for t in _extras() if t.hint]
+
+
+def simulations_of(name: str) -> list[dict]:
+    """simulate_data() dicts of the last run of an extra tool (for the origin check)."""
+    t = EXTRA_TOOLS.get(name)
+    return list(t.simulations() or []) if t and t.simulations else []
+
+
 def run_tool(name: str, arguments) -> str:
     """Single entry point: validates and runs. Never raises."""
-    if name not in _DISPATCH:
+    extra = {t.name: t.run for t in _extras()}
+    fn = _DISPATCH.get(name) or extra.get(name)
+    if fn is None:
         return (f"ERROR: tool '{name}' does not exist. Available: "
-                f"{', '.join(_DISPATCH)}.")
+                f"{', '.join([*_DISPATCH, *extra])}.")
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments) if arguments.strip() else {}
@@ -1011,7 +1065,7 @@ def run_tool(name: str, arguments) -> str:
     if not isinstance(arguments, dict):
         return "ERROR: the arguments must be a JSON object."
     try:
-        return _DISPATCH[name](**arguments)
+        return fn(**arguments)
     except TypeError as e:
         return f"ERROR: wrong arguments for '{name}': {e}"
     except Exception as e:  # noqa: BLE001 - the model must always get an answer
