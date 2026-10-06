@@ -1,0 +1,30 @@
+name: Feature request
+description: An idea, a new benchmark challenge or an improvement to the docs.
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - A new feature
+        - A new benchmark challenge
+        - Documentation
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you want to do
+      description: The problem or the use case, in your own words. What do you do today instead?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Your proposal
+      description: >-
+        How it could work. For a challenge: the statement, the reference solution and how
+        you checked it. Every challenge needs an answer that can be verified by simulating
+        it again.

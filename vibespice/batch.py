@@ -170,7 +170,7 @@ def run_batch(provider: agent.Provider, jobs: list[tuple], args, kind: str) -> i
         print(c(f"Full history in {tilde(agent.LOGS / 'summary.csv')}", GREY))
     if len(results) > 1 or time.time() - t0 > 120:
         passed = sum(1 for _, _, r in results if r["state"] == "PASS")
-        notify_done("vibespice: batch finished",
+        notify_done("VibeSPICE: batch finished",
                     f"{passed}/{len(results)} PASS in {fmt_dur(time.time() - t0)}"
                     + (f" · stopped by time {stopped}" if stopped else ""))
     return 0

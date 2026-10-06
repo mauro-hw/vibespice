@@ -28,7 +28,7 @@ from . import challenges as C
 from .console import BLUE, BOLD, GREEN, GREY, RED, YELLOW, c, tilde
 
 
-LEGAL = """vibespice {version} (code: {code})
+LEGAL = """VibeSPICE {version} (code: {code})
 Copyright 2026 Mauro Rodriguez Blasco
 License AGPL-3.0-only: GNU Affero General Public License, version 3
 <https://www.gnu.org/licenses/agpl-3.0.html>, with an additional term on attribution
@@ -102,7 +102,7 @@ MENU = [
 
 def menu(prog: str, ask=input) -> list[str] | None:
     """No arguments and in a terminal: guided menu that shows the command it will run."""
-    print(c("vibespice — what do you want to do?", BOLD))
+    print(c("VibeSPICE — what do you want to do?", BOLD))
     print(c(f"  {__version__} · AGPL-3.0-only · no warranty ({prog} --version)", GREY))
     if not config.config_file().exists():
         print(c(f"  First time? Choose {len(MENU)} to set up the model and API.", YELLOW))
@@ -201,7 +201,7 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
                                "Codex, Gemini CLI) over MCP, without an API key; in a "
                                "terminal, shows how to add it",
                    description="MCP server over standard input and output. The chat app "
-                   "starts it; its model, from your own account, uses the vibespice tools on "
+                   "starts it; its model, from your own account, uses the VibeSPICE tools on "
                    "this computer. Run in a terminal, it shows how to add it to each app.")
     return p
 

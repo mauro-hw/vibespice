@@ -414,7 +414,7 @@ def main() -> int:
     rc, out = vibespice(["selftest"], env, tmp)
     failures += report("selftest", rc == 0 and "Self-test passed" in out, out)
     rc, out = vibespice(["--version"], env, tmp, timeout=60)
-    failures += report("--version", rc == 0 and out.startswith("vibespice ")
+    failures += report("--version", rc == 0 and out.startswith("VibeSPICE ")
                        and "AGPL-3.0-only" in out and "NO WARRANTY" in out, out)
 
     for scenario, args, expected, *extra in CASES:

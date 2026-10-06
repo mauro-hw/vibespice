@@ -5,7 +5,7 @@ on this repository.
 
 ## What this is
 
-vibespice is an agent that designs and simulates analog circuits from a prompt
+VibeSPICE is an agent that designs and simulates analog circuits from a prompt
 (`vibespice run`). It talks to a language model through its API (Claude, any
 OpenAI-compatible API or Open WebUI) and runs ngspice locally, in a loop, until the model
 gives a final answer. It also has a benchmark (`vibespice bench`): challenges whose answers
@@ -39,6 +39,9 @@ command once installed):
 - `tests/`: a fake LLM server that speaks the three APIs (Open WebUI, OpenAI-compatible
   and Claude), with a scripted "model", a scripted MCP client and end-to-end tests.
 - `CHANGELOG.md`: what changed in each version.
+- `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` and `.github/ISSUE_TEMPLATE/`,
+  `.github/pull_request_template.md`: for people who contribute. Keep `CONTRIBUTING.md` and
+  the pull request checklist in step with the rules below.
 
 ## Rules
 
@@ -54,6 +57,9 @@ command once installed):
 - **Anything served over a network must link to its source code** (section 13 of the
   AGPL). The planned web app shows that link, and `vibespice --version` prints it.
 - **English everywhere**: code, identifiers, comments, messages, prompts and docs.
+- **The name is VibeSPICE** wherever people read it: docs, messages, titles, prompts.
+  `vibespice`, in lower case, only where it is an identifier: the command, the package,
+  paths, `VIBESPICE_*` variables, the MCP server key and URLs.
 - **Nothing personal lives in the repository.** The configuration, with the API key, is
   `~/.config/vibespice/config.toml` and the logs go to `~/.local/share/vibespice/logs/`.
   Never commit either; `config.toml` and `logs/` are in `.gitignore` in case someone points
@@ -109,7 +115,8 @@ the relevant logs or output when it matters.
   a user would notice gets a line under `## [Unreleased]` **in the same commit**.
 - To release: set `__version__` (for example `0.1.0`), rename `## [Unreleased]` to
   `## [0.1.0] - YYYY-MM-DD`, say under it what the version has been tried with (systems,
-  apps, real models; and what not yet), open a new empty `## [Unreleased]`, commit, then tag
+  apps, real models, counting the compatibility reports opened since the last release; and
+  what not yet), open a new empty `## [Unreleased]`, commit, then tag
   `v0.1.0` and push the tag. After the release, move `__version__` to the next `.dev0`.
 - While the version is `0.x`, minor versions may change the CLI, the log format or the tool
   names; say so in the changelog.
@@ -118,3 +125,6 @@ the relevant logs or output when it matters.
 
 - Small, focused commits with a message that explains why, not only what.
 - Work in branches; `main` stays stable and passing.
+- Coding agents may commit, push their branch and open a pull request without asking.
+  They never push to `main` and never merge on their own: the maintainer approves every
+  merge, and an agent merges a pull request only when the maintainer says so for that one.

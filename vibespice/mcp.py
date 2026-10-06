@@ -2,11 +2,11 @@
 # Copyright 2026 Mauro Rodriguez Blasco
 # Additional term under section 7(b) of the license: see NOTICE.
 """
-vibespice as an MCP server: the tools, with no model and no API key.
+VibeSPICE as an MCP server: the tools, with no model and no API key.
 
 A chat app (Claude Desktop, Claude Code, Codex, Gemini CLI...) starts `vibespice mcp` and
 talks to it over standard input and output. The app's model, paid by the user's own
-subscription, runs the loop; vibespice only runs the tools on this computer, with the
+subscription, runs the loop; VibeSPICE only runs the tools on this computer, with the
 same safety limits as `vibespice run`.
 
 Both generations of the protocol are served, request by request:
@@ -41,12 +41,12 @@ VERSION_KEY = "io.modelcontextprotocol/protocolVersion"
 CAPABILITIES_KEY = "io.modelcontextprotocol/clientCapabilities"
 SERVER_INFO_KEY = "io.modelcontextprotocol/serverInfo"
 
-SERVER_INFO = {"name": "vibespice", "title": "vibespice", "version": __version__,
+SERVER_INFO = {"name": "vibespice", "title": "VibeSPICE", "version": __version__,
                "websiteUrl": SOURCE_URL}
 CAPABILITIES = {"tools": {"listChanged": False}}
 CACHE = {"ttlMs": 3_600_000, "cacheScope": "public"}     # the tools only change with a new version
 
-INSTRUCTIONS = f"""vibespice runs a real SPICE simulator (ngspice) on the user's computer. Use it to design and check analog circuits.
+INSTRUCTIONS = f"""VibeSPICE runs a real SPICE simulator (ngspice) on the user's computer. Use it to design and check analog circuits.
 - Work iteratively: propose a circuit, simulate it, compare with the goal and adjust until it is met.
 - Your memory of the E series and your mental arithmetic are not reliable: take standard values from standard_values and do arithmetic with calculate. Circuit numbers must come from the simulator; never make up results.
 - Compare several candidates in one call: calculate accepts several expressions separated by ';', and one netlist can contain several independent circuits (with different nodes).
@@ -54,7 +54,7 @@ INSTRUCTIONS = f"""vibespice runs a real SPICE simulator (ngspice) on the user's
 - Netlists: no title line and no .control blocks; ground is node 0; k = kilo, MEG = mega, m = milli ('M' is milli too!). The DC operating point is always printed; for .tran/.ac/.dc use .meas. A negative i(V1) means the source is delivering current.
 - Before delivering a design, simulate exactly that design and check every requirement against the numbers from the tools. If one is not met, even by a small margin, keep searching or explain why it is impossible.
 - Give the user the final netlist and the key results, with units.
-vibespice is free software (AGPL-3.0-only): {SOURCE_URL}"""
+VibeSPICE is free software (AGPL-3.0-only): {SOURCE_URL}"""
 
 # Names for the app to show (a tool without one shows its name)
 TITLES = {"simulate": "Simulate with ngspice", "analyze_tolerances": "Analyze tolerances",
@@ -170,7 +170,7 @@ def serve(stdin=None, stdout=None) -> int:
     inp = stdin or sys.stdin.buffer
     out = stdout or sys.stdout.buffer
     sys.stdout = sys.stderr              # a stray print must never corrupt the protocol
-    print(f"vibespice {__version__} MCP server · ngspice: "
+    print(f"VibeSPICE {__version__} MCP server · ngspice: "
           f"{hs.ngspice_version() or f'NOT FOUND ({hs.NGSPICE})'}", file=sys.stderr)
     for line in inp:
         if not line.strip():
@@ -198,7 +198,7 @@ def in_wsl() -> bool:
 
 
 SETUP = """vibespice mcp is started by your chat app, not by you. It lends the app's model the
-vibespice tools (simulate, analyze_tolerances, standard_values, calculate), with no API key:
+VibeSPICE tools (simulate, analyze_tolerances, standard_values, calculate), with no API key:
 the model comes with your Claude, ChatGPT or Google account.
 {warnings}
 Add it to the app you use, once:

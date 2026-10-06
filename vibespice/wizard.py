@@ -77,7 +77,7 @@ def _run(prog, ask, secret, out, base_urls) -> int:
     path = config.config_file()
     existing = path.exists()
     profiles: list[str] = []
-    out(c("vibespice — which model will design your circuits?", BOLD))
+    out(c("VibeSPICE — which model will design your circuits?", BOLD))
     if existing:
         profiles = config.load().profiles
         out(f"You already have a configuration file: {tilde(path)}"
