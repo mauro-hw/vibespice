@@ -7,8 +7,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-First public version, planned as 0.1.0. Nothing has been released before it, so this list
-describes everything vibespice does.
+## [0.1.0] - 2026-10-06
+
+First public version. Nothing was released before it, so this list describes everything
+vibespice does.
+
+**What it has been tried with.** The tests without a model (`selftest` and
+`tests/run_tests.py`) pass on Fedora 44 (Python 3.14, ngspice 47) and on Ubuntu 24.04 in
+GitHub Actions (Python 3.11 to 3.14, ngspice 42). With real models: the agent with Open WebUI
+and qwen3.8:27b-q8_0, and `vibespice mcp` with Claude Code on Fedora 44. Not tried yet with
+real models: the Claude API and OpenAI-compatible APIs (only against the test server), and
+Claude Desktop, Codex and Gemini CLI; nor on macOS or Windows (WSL).
 
 ### Added
 

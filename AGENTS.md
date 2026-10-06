@@ -108,7 +108,8 @@ the relevant logs or output when it matters.
 - `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/). Every change that
   a user would notice gets a line under `## [Unreleased]` **in the same commit**.
 - To release: set `__version__` (for example `0.1.0`), rename `## [Unreleased]` to
-  `## [0.1.0] - YYYY-MM-DD` and open a new empty `## [Unreleased]`, commit, then tag
+  `## [0.1.0] - YYYY-MM-DD`, say under it what the version has been tried with (systems,
+  apps, real models; and what not yet), open a new empty `## [Unreleased]`, commit, then tag
   `v0.1.0` and push the tag. After the release, move `__version__` to the next `.dev0`.
 - While the version is `0.x`, minor versions may change the CLI, the log format or the tool
   names; say so in the changelog.
