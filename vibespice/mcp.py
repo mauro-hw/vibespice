@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -241,7 +242,7 @@ def setup_text(exe: str | None, ngspice: str | None, wsl: bool) -> str:
     return SETUP.format(warnings="".join("\n" + w + "\n" for w in warnings),
                         where=" (in Windows)" if wsl else "",
                         desktop="\n".join("  " + l for l in config.splitlines()),
-                        command=f"{exe} mcp", source=SOURCE_URL)
+                        command=shlex.join([exe, "mcp"]), source=SOURCE_URL)
 
 
 def setup() -> int:
