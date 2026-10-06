@@ -51,8 +51,10 @@ A few words used below:
 
 ## 1. Getting started (about 15 minutes)
 
-vibespice runs on **Linux** and **macOS**, and on **Windows through WSL** (a Linux inside
-Windows, see step 1). It is tested with Python 3.11 to 3.14 and ngspice 42 and 47.
+vibespice is made for **Linux** and **macOS**, and for **Windows through WSL** (a Linux
+inside Windows, see step 1). So far it has been tried on Fedora and Ubuntu, with Python 3.11
+to 3.14 and ngspice 42 and 47; on macOS and WSL, not yet. If you try it there, please
+[tell us](https://github.com/mauro-hw/vibespice/issues) how it went.
 
 ### Step 1. Open a terminal
 
@@ -196,6 +198,10 @@ talk to it in the app as usual, and ngspice still runs on your computer.
 4. Open a new chat and ask for a circuit, for example *"Design a 12 V to 5 V divider with
    E24 resistors and check it with vibespice"*. The app may ask your permission the first
    time it uses each tool.
+
+So far it has been tried with Claude Code on Linux. Claude Desktop, Codex and Gemini CLI
+work the same way, but nobody has tried them yet: if you do, please [tell us](https://github.com/mauro-hw/vibespice/issues)
+how it went, with what you saw if something failed.
 
 On Windows, install vibespice in WSL (step 1) and type `vibespice mcp` there: the block it
 shows makes Claude Desktop, on Windows, start vibespice inside WSL.
@@ -579,6 +585,11 @@ vibespice follows [Semantic Versioning](https://semver.org/), and every change i
 git commit of the code, with `+changes` if there were uncommitted changes (a copy installed
 with pipx from GitHub records the commit it was installed from), so results can always be
 traced back to the exact code that produced them.
+
+The entry of each version in the CHANGELOG says what it has been tried with: systems, apps
+and real models. `pipx install git+https://github.com/mauro-hw/vibespice` installs the
+latest code; to install a given version, add its tag:
+`pipx install git+https://github.com/mauro-hw/vibespice@v0.1.0`.
 
 Copyright 2026 Mauro Rodriguez Blasco. vibespice is free software under the GNU Affero
 General Public License, version 3 only (AGPL-3.0-only): see [LICENSE](LICENSE) and
