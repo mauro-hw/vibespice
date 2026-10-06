@@ -13,6 +13,10 @@ saved: its reasoning, every netlist and every result.
 vibespice also includes a **benchmark**: eight design challenges whose answers it **checks on
 its own**, by simulating them again, to measure how well a model does this job.
 
+**No API key?** If you use Claude, ChatGPT or Gemini with your own account, vibespice can
+lend its tools to the app you already use: see
+[Without an API key](#without-an-api-key-from-your-chat-app).
+
 ```
  the model (Claude API, any OpenAI-compatible API or Open WebUI)
         ⇅  it asks for simulations and gets their results
@@ -23,7 +27,8 @@ its own**, by simulating them again, to measure how well a model does this job.
 
 ## Contents
 
-1. [Getting started](#1-getting-started-about-15-minutes): install it and run your first task
+1. [Getting started](#1-getting-started-about-15-minutes): install it and run your first task,
+   or [use it from your chat app](#without-an-api-key-from-your-chat-app) without an API key
 2. [Using it](#2-using-it): writing tasks, reading the results, what it costs
 3. [Other models and APIs](#3-other-models-and-apis): the configuration file
 4. [The benchmark](#4-the-benchmark-measuring-a-model): measuring a model
@@ -91,6 +96,9 @@ The second command tests ngspice and vibespice without any model. It should end 
 **Self-test passed.**
 
 ### Step 4. Get an API key
+
+> **No API key, but a Claude, ChatGPT or Google account?** Skip steps 4 to 7 and go to
+> [Without an API key](#without-an-api-key-from-your-chat-app).
 
 The quickest way is the **Claude API**:
 1. Create an account in the [Claude Console](https://platform.claude.com).
@@ -160,6 +168,51 @@ delete those folders if you want them gone too.
 > **Without installing**, from a copy of the code
 > (`git clone https://github.com/mauro-hw/vibespice`, then `cd vibespice`), type
 > `python3 -m vibespice` wherever this README says `vibespice`.
+
+### Without an API key: from your chat app
+
+Do you use Claude, ChatGPT or Gemini with your own account? Then you don't need an API:
+vibespice can lend its tools to the app you already use, and the app's model uses them. You
+talk to it in the app as usual, and ngspice still runs on your computer.
+
+```
+ your chat app (Claude Desktop, Claude Code, Codex, Gemini CLI) and its model
+        ⇅  MCP: it asks for simulations and gets their results
+ vibespice mcp (your computer)  ⇄  ngspice
+```
+
+1. Do steps 1 to 3: Python, ngspice and vibespice.
+2. Type `vibespice mcp`. In a terminal it starts nothing: it shows what to add to each app,
+   with the paths of your computer already filled in.
+3. Add it to your app, the way it says:
+
+   | App | Account | How |
+   |---|---|---|
+   | Claude Desktop | Claude | *Settings → Developer → Edit Config*: paste the block it shows, save, quit Claude completely (from the menu bar or the tray, not only the window) and open it again |
+   | Claude Code | Claude Pro or Max | `claude mcp add --scope user vibespice -- …/vibespice mcp` |
+   | Codex | ChatGPT | `codex mcp add vibespice -- …/vibespice mcp` |
+   | Gemini CLI | Google | `gemini mcp add --scope user vibespice …/vibespice mcp` |
+
+4. Open a new chat and ask for a circuit, for example *"Design a 12 V to 5 V divider with
+   E24 resistors and check it with vibespice"*. The app may ask your permission the first
+   time it uses each tool.
+
+On Windows, install vibespice in WSL (step 1) and type `vibespice mcp` there: the block it
+shows makes Claude Desktop, on Windows, start vibespice inside WSL.
+
+The web versions (claude.ai, chatgpt.com) only connect to servers on the internet, so they
+can't reach `vibespice mcp` on your computer: use one of the apps above.
+
+**What changes compared with `vibespice run`:**
+- The app's model runs the loop, with the app's own instructions. vibespice gives it the
+  same tools and safety limits (section 5) and the netlist rules, but it doesn't save the
+  conversation: the app keeps it. Ask the model for the final netlist to check it yourself.
+- There is no automatic verification and no benchmark: `vibespice bench` needs an API, so
+  that every model is measured in the same conditions.
+- It counts against the usage limits of your plan, not against API credit.
+- Some apps stop a tool that takes too long: Codex, after 60 s by default. A big Monte
+  Carlo can take that long. To give it more time in Codex, add `tool_timeout_sec = 300`
+  under `[mcp_servers.vibespice]` in `~/.codex/config.toml`.
 
 ---
 
@@ -416,6 +469,8 @@ you don't want one). The helpers `divider_vout()` and `divider_worst_case()` are
 - Each simulation runs in a temporary folder with a 30 s limit.
 - Monte Carlo is capped at 5000 samples.
 
+The limits are the same when a chat app uses the tools through `vibespice mcp`.
+
 **Help for the model.** The tools warn about the usual mistakes: a title line (SPICE ignores
 the first line), `M` = milli, a missing ground `0`, a singular matrix, `.step` (it does not
 exist in ngspice) and failed `.meas`. `simulate` also says which E series each R, C and L
@@ -441,6 +496,7 @@ the model can correct itself, which is exactly what we want to see.
 | `selftest` | Local test without any model: ngspice, the tools and the verifiers |
 | `analyze` | Statistics of the saved runs (section 4) |
 | `init` | Asks which API, key and model to use, checks them and saves them; run it again to add another (section 3). `--template` writes a commented file instead, without questions. It never overwrites anything |
+| `mcp` | Lends the tools to a chat app over MCP, without an API key (section 1, *Without an API key*). The app starts it on its own; typed in a terminal, it shows how to add it to each app |
 | `--version` | Prints the version, the code commit, the license and where the source code is |
 
 Type `vibespice <command> -h` for the options of each one.
@@ -490,7 +546,9 @@ suspend it by hand; on battery, closing the lid does suspend it. If it suspends,
 | "the reply was cut at max_tokens" | The model needed a longer reply: raise `max_tokens` in the profile |
 | "the model declined to answer" | The API's safety classifiers refused the request; the log says the category. Reword the task |
 | "possible context truncation" | With your own server: the conversation does not fit in its `num_ctx`. Raise it in the model's configuration (carefully, section 3) |
-| `ngspice executable not found` | Install ngspice (step 2) or set its path in `ngspice`, in the configuration file |
+| `ngspice executable not found` | Install ngspice (step 2) or set its path in `ngspice`, in the configuration file. In a chat app, use the block that `vibespice mcp` shows: it has the full path of ngspice |
+| The chat app does not show the vibespice tools | Quit the app completely and open it again. Check that the paths in its configuration are the ones `vibespice mcp` shows; they change if you reinstall Python or vibespice somewhere else |
+| A tool "timed out" in a chat app | A long Monte Carlo: ask for fewer samples, or give the app more time (Codex: `tool_timeout_sec`, section 1, *Without an API key*) |
 | The self-test fails on some value | Please open an issue with the output: it may be a format change between ngspice versions |
 
 ### Files in this repository
@@ -501,12 +559,13 @@ suspend it by hand; on battery, closing the lid does suspend it. If it suspends,
 | `vibespice/agent.py` | The agent: loop, logs and verification |
 | `vibespice/providers/` | How it talks to each API: Claude, OpenAI-compatible and Open WebUI |
 | `vibespice/tools.py` | What the model can use: `simulate`, `analyze_tolerances`, `standard_values`, `calculate` |
+| `vibespice/mcp.py` | `vibespice mcp`: the same tools for a chat app, over MCP |
 | `vibespice/challenges.py` | The challenges, how they are verified and their solutions (the model never sees them) |
 | `vibespice/analyze.py` | Statistics of the saved runs: pass rate, times, tools, measurements, unmeasured results and signs that it simulates another circuit, per challenge and configuration |
 | `vibespice/config.py` | The configuration file, its profiles and where the results go |
 | `vibespice/batch.py`, `checks.py`, `console.py` | Batches and time limits; `check` and `selftest`; terminal output |
 | `pyproject.toml` | Package metadata, so it can be installed with pipx or pip |
-| `tests/` | Tests without any model: a fake server, with a scripted "model", that speaks the three APIs |
+| `tests/` | Tests without any model: a fake server, with a scripted "model", that speaks the three APIs, and a scripted MCP client |
 | `AGENTS.md` | Project rules for contributors and coding agents |
 | `CHANGELOG.md` | What changed in each version |
 | `LICENSE`, `NOTICE` | License (AGPL-3.0-only) and attribution notice |

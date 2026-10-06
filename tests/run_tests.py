@@ -7,8 +7,9 @@ End-to-end tests without a real server.
 
 Runs the self-test and then runs the agent against a fake Open WebUI in several scenarios
 (native calls, calls written as text, forgotten JSON, loops, empty replies, netlist
-errors, wrong answer...), free tasks, the configuration file and the log analysis. It
-never reads your configuration or your logs: everything goes to a temporary folder.
+errors, wrong answer...), free tasks, the configuration file, the log analysis and the
+MCP server. It never reads your configuration or your logs: everything goes to a temporary
+folder.
 
     python3 tests/run_tests.py
 """
@@ -281,6 +282,122 @@ def wizard_tests(tmp: Path) -> int:
     return failures
 
 
+def mcp_tests(tmp: Path, env: dict) -> int:
+    """vibespice mcp as a chat app sees it: both generations of the protocol, the tools,
+    errors the model can fix, malformed input and, in a terminal, how to add it."""
+    import json
+    import pty
+
+    modern = {"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+              "io.modelcontextprotocol/clientCapabilities": {}}
+    divider = "V1 a 0 DC 12\nR1 a b 7k\nR2 b 0 5k\n.op"
+
+    def call(name, arguments, meta=None) -> dict:
+        params = {"name": name, "arguments": arguments}
+        return dict(params, _meta=meta) if meta else params
+
+    requests = {      # id → (method, params); plus notifications and junk, without an id
+        1: ("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                           "clientInfo": {"name": "tests", "version": "0"}}),
+        2: ("initialize", {"protocolVersion": "1999-01-01", "capabilities": {}}),
+        3: ("ping", None),
+        4: ("tools/list", {}),
+        5: ("tools/call", call("simulate", {"netlist": divider})),
+        6: ("tools/call", call("simulate", {"netlist": "V1 a 0 1\n.control\nshell ls\n.endc"})),
+        7: ("tools/call", call("calculate", {"expression": "parallel(2.2k,4.7k)"})),
+        8: ("tools/call", call("analyze_tolerances", {
+            "netlist": divider, "tolerances": {"R1": 1, "R2": 1}, "output": "v(b)",
+            "target_value": 5})),
+        9: ("tools/call", call("nope", {})),
+        10: ("tools/call", call("calculate", "1+1")),
+        11: ("resources/list", {}),
+        12: ("server/discover", {"_meta": modern}),
+        13: ("tools/list", {"_meta": modern}),
+        14: ("tools/call", call("simulate", {"netlist": divider}, modern)),
+        15: ("tools/list", {"_meta": dict(modern, **{
+            "io.modelcontextprotocol/protocolVersion": "2099-01-01"})}),
+        16: ("tools/list", {"_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"}}),
+        17: ("server/discover", {}),
+    }
+    lines = []
+    for rid, (method, params) in requests.items():
+        lines.append({"jsonrpc": "2.0", "id": rid, "method": method,
+                      **({"params": params} if params is not None else {})})
+        if rid == 1:
+            lines.append({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    lines.append({"jsonrpc": "2.0", "id": 99, "result": {}})     # a response: no reply
+    text = "\n".join(json.dumps(m) for m in lines) + "\nnot json\n[]\n"
+    r = subprocess.run([sys.executable, "-m", "vibespice", "mcp"], cwd=tmp, env=env,
+                       input=text, capture_output=True, text=True, timeout=120)
+    out = r.stdout + r.stderr
+    try:
+        replies = [json.loads(l) for l in r.stdout.splitlines()]
+    except json.JSONDecodeError:
+        return report("mcp        stdout carries only JSON-RPC", False, out)
+    got = {m.get("id"): m for m in replies if m.get("id") is not None}
+    junk = [m for m in replies if m.get("id") is None]
+
+    def result(rid) -> dict:
+        return got.get(rid, {}).get("result") or {}
+
+    def code(rid):
+        return got.get(rid, {}).get("error", {}).get("code")
+
+    def text_of(rid) -> str:
+        return "".join(c.get("text", "") for c in result(rid).get("content", []))
+
+    tools = result(4).get("tools", [])
+    failures = report(
+        "mcp        legacy: initialize, ping and the tool list",
+        r.returncode == 0 and len(replies) == len(requests) + 2
+        and result(1).get("protocolVersion") == "2025-06-18"
+        and result(1).get("serverInfo", {}).get("websiteUrl", "").startswith("https://")
+        and "ngspice" in result(1).get("instructions", "")
+        and result(2).get("protocolVersion") == "2025-11-25"
+        and got.get(3, {}).get("result") == {} and "resultType" not in result(4)
+        and [t["name"] for t in tools] == ["simulate", "analyze_tolerances",
+                                           "standard_values", "calculate"]
+        and all(t["annotations"]["readOnlyHint"] and t["inputSchema"]["type"] == "object"
+                for t in tools)
+        and "MCP server · ngspice" in r.stderr, out)
+    failures += report(
+        "mcp        tools: results, errors for the model and protocol errors",
+        result(5).get("isError") is False and "v(b) = 5 V" in text_of(5)
+        and result(6).get("isError") is True and text_of(6).startswith("ERROR")
+        and "= 1498.55" in text_of(7) and "CORNERS" in text_of(8)
+        and code(9) == -32602 and code(10) == -32602 and code(11) == -32601, out)
+    failures += report(
+        "mcp        modern (2026-07-28): discover, versions and _meta",
+        result(12).get("resultType") == "complete"
+        and result(12).get("supportedVersions") == ["2026-07-28"]
+        and result(12).get("_meta", {}).get("io.modelcontextprotocol/serverInfo", {})
+        .get("name") == "vibespice"
+        and result(13).get("cacheScope") == "public" and len(result(13).get("tools", [])) == 4
+        and result(14).get("resultType") == "complete" and "v(b) = 5 V" in text_of(14)
+        and code(15) == -32022
+        and got[15]["error"].get("data", {}).get("supported") == ["2026-07-28"]
+        and code(16) == -32602 and code(17) == -32602, out)
+    failures += report(
+        "mcp        malformed input is answered, notifications are not",
+        sorted(m["error"]["code"] for m in junk) == [-32700, -32600] and 99 not in got, out)
+
+    # In a terminal it explains how to add it to each app, instead of waiting for JSON
+    primary, secondary = pty.openpty()
+    try:
+        r = subprocess.run([sys.executable, "-m", "vibespice", "mcp"], cwd=tmp, env=env,
+                           stdin=secondary, capture_output=True, text=True, timeout=60)
+    finally:
+        os.close(primary)
+        os.close(secondary)
+    out = r.stdout + r.stderr
+    failures += report("mcp        in a terminal: how to add it to each app",
+                       r.returncode == 0 and '"mcpServers"' in r.stdout
+                       and "claude mcp add --scope user vibespice --" in r.stdout
+                       and "codex mcp add vibespice --" in r.stdout
+                       and "MCP server" not in out, out)
+    return failures
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="vibespice_tests_"))
     (tmp / "task.txt").write_text("Design a divider that gives 5 V from 12 V.\n",
@@ -326,6 +443,7 @@ def main() -> int:
 
     failures += config_tests(tmp, env)
     failures += wizard_tests(tmp)
+    failures += mcp_tests(tmp, env)
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nAll tests passed." if not failures else f"\n{failures} test(s) failed.")

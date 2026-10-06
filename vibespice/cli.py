@@ -12,6 +12,7 @@ Command line: vibespice <command>.
     vibespice check | status | selftest
     vibespice analyze --by-version
     vibespice init                        # asks which API, key and model to use
+    vibespice mcp                         # the tools for a chat app, without an API key
 
 Without arguments, in a terminal, a guided menu asks what it needs and shows the command.
 """
@@ -22,7 +23,7 @@ import shlex
 import sys
 from pathlib import Path
 
-from . import __version__, agent, analyze, batch, checks, config, wizard
+from . import SOURCE_URL, __version__, agent, analyze, batch, checks, config, mcp, wizard
 from . import challenges as C
 from .console import BLUE, BOLD, GREEN, GREY, RED, YELLOW, c, tilde
 
@@ -33,7 +34,7 @@ License AGPL-3.0-only: GNU Affero General Public License, version 3
 <https://www.gnu.org/licenses/agpl-3.0.html>, with an additional term on attribution
 (see NOTICE). This is free software: you are free to change and redistribute it.
 There is NO WARRANTY, to the extent permitted by law.
-Source code: https://github.com/mauro-hw/vibespice"""
+Source code: {source}"""
 
 
 def prog_name() -> str:
@@ -196,6 +197,12 @@ def build_parser(prog: str) -> argparse.ArgumentParser:
     i.add_argument("--template", action="store_true",
                    help="just write the commented template, without questions (never "
                         "overwrites)")
+    sub.add_parser("mcp", help="lend the tools to a chat app (Claude Desktop, Claude Code, "
+                               "Codex, Gemini CLI) over MCP, without an API key; in a "
+                               "terminal, shows how to add it",
+                   description="MCP server over standard input and output. The chat app "
+                   "starts it; its model, from your own account, uses the vibespice tools on "
+                   "this computer. Run in a terminal, it shows how to add it to each app.")
     return p
 
 
@@ -228,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     if args.version:
-        print(LEGAL.format(version=__version__, code=agent.code_version()))
+        print(LEGAL.format(version=__version__, code=agent.code_version(), source=SOURCE_URL))
         return 0
     if args.command is None:
         p.print_help()
@@ -237,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
         return init(prog, args.template)
     settings = config.load(getattr(args, "profile", None))
     agent.configure(settings)
+    if args.command == "mcp":       # no profile or key: only ngspice, from the configuration
+        return mcp.setup() if sys.stdin.isatty() else mcp.serve()
     if args.command == "selftest":
         return 1 if checks.selftest() else 0
     if args.command == "analyze":

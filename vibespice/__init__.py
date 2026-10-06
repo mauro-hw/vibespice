@@ -5,3 +5,4 @@
 with ngspice, and every answer is verified independently by re-simulating it."""
 
 __version__ = "0.1.0.dev0"
+SOURCE_URL = "https://github.com/mauro-hw/vibespice"

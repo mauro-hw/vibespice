@@ -29,13 +29,15 @@ command once installed):
 - `vibespice/batch.py`: running jobs one after another, time limits and estimates.
 - `vibespice/checks.py`: `check` (connection) and `selftest` (tools and verifiers, no AI).
 - `vibespice/console.py`: terminal output, notification and keeping the computer awake.
+- `vibespice/mcp.py`: `vibespice mcp`, the same tools for a chat app over MCP (stdio, both
+  protocol generations), and the instructions to add it to each app.
 - `vibespice/tools.py`: tools offered to the model (`simulate`, `analyze_tolerances`,
   `standard_values`, `calculate`) and their schemas.
 - `vibespice/challenges.py`: challenges, verifiers and reference answers (correct and wrong).
 - `vibespice/analyze.py`: statistics of `logs/` (read-only; the tests use it too).
 - `pyproject.toml`: package metadata. No runtime dependencies.
 - `tests/`: a fake LLM server that speaks the three APIs (Open WebUI, OpenAI-compatible
-  and Claude), with a scripted "model", and end-to-end tests.
+  and Claude), with a scripted "model", a scripted MCP client and end-to-end tests.
 - `CHANGELOG.md`: what changed in each version.
 
 ## Rules
@@ -73,6 +75,9 @@ command once installed):
 - **The conversation is append-only.** Never edit or drop an earlier turn: the Claude API
   rejects a history whose assistant turns changed (thinking blocks included), and the fake
   server checks it.
+- **In `vibespice mcp`, stdout carries protocol messages only.** Anything else, including a
+  stray `print`, breaks the chat app's connection: diagnostics go to stderr. A new tool
+  reaches the chat apps on its own; give it a title in `mcp.TITLES` for them to show.
 - **Tests never use real keys.** `tests/run_tests.py` drops `ANTHROPIC_API_KEY` and
   `OPENAI_API_KEY` along with every `VIBESPICE_*` variable.
 - **Do not change the default `--num-ctx auto`.** A request with a different `num_ctx`

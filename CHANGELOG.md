@@ -49,6 +49,17 @@ describes everything vibespice does.
 - `vibespice check`: ngspice, the key, the model (with its reasoning levels), a chat and a
   tool call. `vibespice status`: the models loaded on an Open WebUI server.
 
+**From a chat app, without an API key**
+- `vibespice mcp`: an MCP server over standard input and output that lends the four tools,
+  with the same safety limits, to a chat app (Claude Desktop, Claude Code, Codex, Gemini
+  CLI). The app's model, from the user's own account, runs the loop; vibespice runs ngspice
+  on the user's computer. It speaks both generations of the protocol, 2026-07-28 and the
+  ones with the `initialize` handshake (2024-11-05 to 2025-11-25), and gives the app
+  instructions with the netlist rules and the way of working of `vibespice run`.
+- Run in a terminal, `vibespice mcp` shows what to add to each app, with the full paths of
+  vibespice and ngspice: the apps do not start it from a terminal, so they may not find
+  them in the PATH.
+
 **Measuring a model**
 - `vibespice bench`: eight challenges, from a warm-up simulation to biasing a 2N3904 that is
   stable against β, whose final answer is verified independently by re-simulating it.
@@ -81,7 +92,7 @@ describes everything vibespice does.
   the code (`+changes` with uncommitted changes; a copy installed with pipx from GitHub
   records the commit it was installed from). `--version` shows it, with the license.
 - `vibespice selftest` (no model needed) and `tests/run_tests.py`: end-to-end tests against
-  a fake server that speaks the three APIs.
+  a fake server that speaks the three APIs, and a scripted MCP client.
 - AGPL-3.0-only license, with a `NOTICE` that must be kept (an additional term on
   attribution, under section 7(b)) and SPDX headers in every source file.
 
