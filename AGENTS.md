@@ -37,7 +37,8 @@ command once installed):
 - `vibespice/analyze.py`: statistics of `logs/` (read-only; the tests use it too).
 - `pyproject.toml`: package metadata. No runtime dependencies.
 - `tests/`: a fake LLM server that speaks the three APIs (Open WebUI, OpenAI-compatible
-  and Claude), with a scripted "model", a scripted MCP client and end-to-end tests.
+  and Claude, the first two also streamed), with a scripted "model", a scripted MCP client
+  and end-to-end tests.
 - `CHANGELOG.md`: what changed in each version.
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` and `.github/ISSUE_TEMPLATE/`,
   `.github/pull_request_template.md`: for people who contribute. Keep `CONTRIBUTING.md` and

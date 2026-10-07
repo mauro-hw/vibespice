@@ -12,8 +12,8 @@ import json
 import uuid
 
 from ..console import shorten
-from .base import (APIError, Conversation, Provider, Reply, ToolCall, Usage, profile_name,
-                   sampling, split_thinking)
+from .base import (APIError, Conversation, Provider, Reply, ToolCall, Usage, error_detail,
+                   profile_name, sampling, split_thinking)
 
 
 def think_value(think) -> bool | str:
@@ -80,6 +80,50 @@ def parse_chat(resp: dict) -> Reply:
                  stop=stop, raw_text=raw, raw=resp)
 
 
+def collect(events, progress=None) -> dict:
+    """The chunks of a streamed chat completion, put back together as one non-streamed
+    response (for parse_chat). progress(reasoning_chars, text_chars) after each chunk."""
+    content, reasoning, calls = [], [], {}
+    finish, usage = None, None
+    n_reasoning = n_content = 0
+    for ev in events:
+        if ev.get("error"):
+            raise APIError("The server stopped the reply: " + error_detail(json.dumps(ev)))
+        if ev.get("usage"):
+            usage = ev["usage"]
+        for ch in ev.get("choices") or []:
+            delta = ch.get("delta") or {}
+            if delta.get("content"):
+                content.append(delta["content"])
+                n_content += len(delta["content"])
+            thought = delta.get("reasoning_content") or delta.get("reasoning")
+            if thought:
+                reasoning.append(thought)
+                n_reasoning += len(thought)
+            for tc in delta.get("tool_calls") or []:
+                slot = calls.setdefault(tc.get("index", len(calls)), {
+                    "id": None, "type": "function", "function": {"name": "", "arguments": ""}})
+                fn = tc.get("function") or {}
+                slot["id"] = slot["id"] or tc.get("id")
+                slot["function"]["name"] = slot["function"]["name"] or fn.get("name") or ""
+                args = fn.get("arguments")
+                if isinstance(args, dict):           # some servers send the whole object
+                    slot["function"]["arguments"] = json.dumps(args, ensure_ascii=False)
+                elif args:
+                    slot["function"]["arguments"] += args
+            if ch.get("finish_reason"):
+                finish = ch["finish_reason"]
+        if progress:
+            progress(n_reasoning, n_content)
+    message = {"role": "assistant", "content": "".join(content)}
+    if reasoning:
+        message["reasoning_content"] = "".join(reasoning)
+    if calls:
+        message["tool_calls"] = [calls[k] for k in sorted(calls)]
+    return {"choices": [{"index": 0, "message": message, "finish_reason": finish}],
+            "usage": usage or {}}
+
+
 class OpenAIChatProvider(Provider):
     chat_path = "/chat/completions"
     models_path = "/models"
@@ -88,11 +132,18 @@ class OpenAIChatProvider(Provider):
         return OpenAIConversation(system, task, tools)
 
     def chat(self, conv: OpenAIConversation, think, num_ctx=None) -> Reply:
-        body = {"model": self.model, "messages": conv.messages, "stream": False}
+        body = {"model": self.model, "messages": conv.messages, "stream": self.stream}
         if conv.tools:
             body["tools"] = conv.tools
         body.update(self.request_extras(think, num_ctx))
-        return parse_chat(self.request("POST", self.chat_path, body))
+        if not self.stream:
+            return parse_chat(self.request("POST", self.chat_path, body))
+        body.update(self.stream_extras())
+        return parse_chat(collect(self.stream_events(self.chat_path, body), self.progress))
+
+    def stream_extras(self) -> dict:
+        """What a streamed request adds (OpenAI: ask for the usage in the last chunk)."""
+        return {}
 
     def models(self) -> list[str]:
         data = self.request("GET", self.models_path, timeout=30)
@@ -240,6 +291,9 @@ class OpenAIProvider(OpenAIChatProvider):
         if self.max_tokens:
             extras["max_tokens"] = self.max_tokens
         return extras
+
+    def stream_extras(self) -> dict:
+        return {"stream_options": {"include_usage": True}}
 
     def resolve_think(self, requested: str) -> tuple[str | None, str]:
         if requested == "no":

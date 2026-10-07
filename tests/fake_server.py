@@ -27,6 +27,7 @@ import hashlib
 import json
 import sys
 import threading
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
@@ -131,6 +132,41 @@ def to_openai_v1(model: str, msg: dict, input_tokens: int) -> dict:
                      "total_tokens": input_tokens + 150,
                      "prompt_tokens_details": {"cached_tokens": 0}}
     return resp
+
+
+def _pieces(text: str, n: int = 3) -> list[str]:
+    size = max(1, -(-len(text) // n))
+    return [text[i:i + size] for i in range(0, len(text), size)]
+
+
+def to_chunks(resp: dict, usage_chunk: bool | None) -> list[dict]:
+    """A chat completion as the chunks of a stream: reasoning and text in pieces, the
+    arguments of each tool call split in two, then the finish reason. The usage goes in the
+    last chunk (Open WebUI), in a chunk of its own (OpenAI with include_usage: True) or nowhere
+    (None)."""
+    msg = resp["choices"][0]["message"]
+    base = {"id": resp["id"], "object": "chat.completion.chunk", "model": resp["model"]}
+
+    def chunk(delta: dict, finish=None) -> dict:
+        return dict(base, choices=[{"index": 0, "delta": delta, "finish_reason": finish}])
+    out = [chunk({"role": "assistant", "content": ""})]
+    for key in ("reasoning_content", "reasoning"):
+        out += [chunk({key: p}) for p in _pieces(msg.get(key) or "")]
+    out += [chunk({"content": p}) for p in _pieces(msg.get("content") or "")]
+    for tc in msg.get("tool_calls") or []:
+        args = tc["function"]["arguments"]
+        out.append(chunk({"tool_calls": [{"index": tc["index"], "id": tc["id"], "type": "function",
+                                          "function": {"name": tc["function"]["name"],
+                                                       "arguments": args[:len(args) // 2]}}]}))
+        out.append(chunk({"tool_calls": [{"index": tc["index"],
+                                          "function": {"arguments": args[len(args) // 2:]}}]}))
+    last = chunk({}, resp["choices"][0]["finish_reason"])
+    if usage_chunk is False:
+        last["usage"] = resp["usage"]
+    out.append(last)
+    if usage_chunk:
+        out.append(dict(base, choices=[], usage=resp["usage"]))
+    return out
 
 
 def signature(text: str) -> str:
@@ -373,6 +409,11 @@ def model_reply(scenario: str, payload: dict) -> dict:
             return {"thinking": "Thinking a little.",
                     "tool_calls": [tc("simulate", {"netlist": NET18})]}
         return {"content": '```json\n{"vout_V": 5.0323, "current_mA": 0.3871}\n```'}
+    if scenario == "slow":       # each reply takes about 3 s (see _stream and do_POST)
+        if n == 0:
+            return {"thinking": "Thinking slowly about the divider.",
+                    "tool_calls": [tc("simulate", {"netlist": NET18})]}
+        return {"content": 'Vout = 5.0323 V.\n```json\n{"vout_V": 5.03226, "current_mA": 0.387097}\n```'}
     if scenario == "challenge5":
         return {"content": "It is not possible.\n```json\n"
                 '{"feasible": false, "reason": "scales with the input", "alternative": "LDO"}\n```'}
@@ -404,6 +445,22 @@ def make_server(scenario: str, port: int = 0) -> ThreadingHTTPServer:
                 self.send_header(k, v)
             self.end_headers()
             self.wfile.write(data)
+
+        def _stream(self, resp: dict, usage_chunk: bool | None) -> None:
+            """Server-sent events, one chunk at a time (in 'slow', 0.4 s apart)."""
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            try:
+                for ev in to_chunks(resp, usage_chunk):
+                    if scenario == "slow":
+                        time.sleep(0.4)
+                    self.wfile.write(b"data: " + json.dumps(ev).encode() + b"\n\n")
+                    self.wfile.flush()
+                self.wfile.write(b"data: [DONE]\n\n")
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
         def _authorized(self) -> bool:
             if self.headers.get("Authorization") != f"Bearer {KEY}":
@@ -459,7 +516,11 @@ def make_server(scenario: str, port: int = 0) -> ThreadingHTTPServer:
             except Exception as e:  # noqa: BLE001 - returned as a 500, like the real one
                 return self._send(500, error_body("openai", "server_error",
                                                   f"{type(e).__name__}: {e}"))
-            self._send(200, to_openai_v1(body["model"], msg, len(json.dumps(payload)) // 3))
+            resp = to_openai_v1(body["model"], msg, len(json.dumps(payload)) // 3)
+            if body.get("stream"):
+                return self._stream(resp, bool((body.get("stream_options") or {})
+                                               .get("include_usage")) or None)
+            self._send(200, resp)
 
         # --- Claude API -----------------------------------------------------------------
         def _anthropic_authorized(self) -> bool:
@@ -562,7 +623,15 @@ def make_server(scenario: str, port: int = 0) -> ThreadingHTTPServer:
                 msg = model_reply(scenario, payload)
             except Exception as e:  # noqa: BLE001 - returned as a 500, like the real one
                 return self._send(500, {"detail": f"{type(e).__name__}: {e}"})
-            self._send(200, to_openai(body["model"], msg, len(json.dumps(payload)) // 3))
+            resp = to_openai(body["model"], msg, len(json.dumps(payload)) // 3)
+            if body.get("stream"):
+                return self._stream(resp, False)
+            if scenario == "slow":              # the same reply, in one piece and late
+                time.sleep(3)
+            try:
+                self._send(200, resp)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     return ThreadingHTTPServer(("127.0.0.1", port), Handler)
 

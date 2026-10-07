@@ -73,6 +73,14 @@ CASES = [
       "agent profile 'qwen3.8'", "native mode works", "All good"]),
     ("challenge2", ["bench", "0", "--think", "xhigh"],
      ["qwen3:32b does not support --think xhigh. Options: yes, no."]),
+    # Streamed replies (the default): each reply takes 3 s, longer than the timeout of 2 s,
+    # but keeps coming; in one piece it times out. And the replies in one piece still work
+    ("slow", ["bench", "0"], ["Result: PASS"], {"VIBESPICE_TIMEOUT": "2"}),
+    ("slow", ["bench", "0"], ["API ERROR: No reply within 2 s"],
+     {"VIBESPICE_TIMEOUT": "2", "VIBESPICE_STREAM": "false"}),
+    ("challenge7", ["bench", "7"], ["the best possible!", "Result: PASS"],
+     {"VIBESPICE_STREAM": "no"}),
+    ("challenge2", ["check"], ["stream must be true or false"], {"VIBESPICE_STREAM": "maybe"}),
     # Free tasks: no verification; the task can come from a file
     ("cold", ["run", "Design a 12 V to 5 V divider"],
      ["═══ Free task ═══", "simulate×1", "Result: UNVERIFIED"]),
@@ -116,6 +124,8 @@ CASES = [
     ("challenge2", ["check"], ["2. OpenAI-compatible API", "native mode works", "All good"],
      OPENAI),
     ("challenge7", ["bench", "7"], ["openai · model gpt-test", "Result: PASS"], OPENAI),
+    ("challenge7", ["bench", "7"], ["openai · model gpt-test", "Result: PASS"],
+     dict(OPENAI, VIBESPICE_STREAM="false")),
     ("challenge2", ["bench", "2", "--think", "high", "--show-thinking"],
      ["reasoning: high", "💭", "Result: PASS"], OPENAI),
     ("busy", ["bench", "0"], ["HTTP 429", "HTTP 503", "Result: PASS"], OPENAI),

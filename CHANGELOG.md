@@ -13,6 +13,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the maintainer and their coding agents), a code of conduct (Contributor Covenant 2.1), a
   security policy with private reporting, and forms for bug reports, compatibility reports
   ("I tried it on…") and feature requests, plus a pull request checklist.
+- Replies stream in with Open WebUI and OpenAI-compatible APIs (`stream = true` by default
+  in every profile; `stream = false` or `VIBESPICE_STREAM=false` turns it off). A long reply
+  is never cut while it keeps coming, not even by a proxy in front of the server (an Apache
+  in front of Open WebUI cut every reply longer than 5 minutes with an `HTTP 502`), and the
+  waiting line shows how much reasoning and text have arrived. The Claude API still answers
+  in one piece.
 
 ### Changed
 
@@ -21,6 +27,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   changes in the docs, the menu, `init`, `--version`, the desktop notification and in what
   `vibespice mcp` tells chat apps: the server title and the first and last lines of its
   instructions to the model (a prompt change; nothing else in them changed).
+- With streaming, `timeout` is the longest pause allowed while a reply keeps coming, not the
+  time of the whole reply.
 
 ## [0.1.0] - 2026-10-06
 

@@ -59,7 +59,8 @@ def make_provider(settings: config.Settings, model: str | None = None,
         raise APIError("No model chosen: set model in your profile or pass --model. "
                        "'vibespice check' lists the models on the server.")
     return CLASSES[settings.provider](settings.url, settings.api_key, model, settings.ca,
-                                      settings.timeout, settings.max_tokens, settings.fallbacks)
+                                      settings.timeout, settings.max_tokens, settings.fallbacks,
+                                      stream=settings.stream)
 
 
 # ---------------------------------------------------------------------------
@@ -273,8 +274,12 @@ def run_agent(provider: Provider, task: str, args, log: RunLog, wants_json: bool
     for step in range(1, args.max_steps + 1):
         st["steps"] = step
         t0 = time.perf_counter()
-        with Heartbeat(f"{provider.model} thinking (step {step})"):
-            reply = provider.chat(conv, args.think, num_ctx)
+        with Heartbeat(f"{provider.model} thinking (step {step})") as beat:
+            provider.progress = beat.progress
+            try:
+                reply = provider.chat(conv, args.think, num_ctx)
+            finally:
+                provider.progress = None
         dt = time.perf_counter() - t0
         st["llm_seconds"] += dt
         content, reasoning, usage = reply.content, reply.reasoning, reply.usage

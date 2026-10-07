@@ -380,7 +380,11 @@ does not know, those of its Modelfile.
 ### Other settings
 
 Any profile can also set `ca` (your CA certificate, for a server with its own HTTPS
-certificate), `timeout` (seconds to wait for each reply, 900 by default) and `max_tokens`.
+certificate), `timeout` (seconds to wait for each reply, 900 by default; when the reply
+streams in, the longest pause allowed while it keeps coming), `max_tokens` and `stream`.
+With Open WebUI and OpenAI-compatible APIs, replies stream in by default: a long reply is
+never cut while it keeps coming, not even by a proxy in front of the server, and the waiting
+line shows how much has arrived. `stream = false` asks for each reply in one piece.
 Outside the profiles, `logs_dir` moves the results folder and `ngspice` sets the path of the
 executable.
 
@@ -553,7 +557,8 @@ suspend it by hand; on battery, closing the lid does suspend it. If it suspends,
 | Certificate error (HTTPS) | Put the path of your CA's certificate in `ca`, in your profile |
 | "did not call the tool" in `check` | Use `--mode text` |
 | "does not support --think …" | That model does not have that reasoning level; the message lists the ones it has |
-| "No reply within 900 s" | Very long reasoning or an overloaded server. Raise `timeout` in your profile or lower `--think` |
+| "No reply within 900 s" | Very long reasoning or an overloaded server. Raise `timeout` in your profile or lower `--think`. With `stream = false`, a proxy in front of the server may also cut long replies (`HTTP 502` after a few minutes): leave streaming on |
+| "The reply stopped coming for 900 s" | The server paused in the middle of a streamed reply: usually overloaded. Raise `timeout` or try later |
 | "the reply was cut at max_tokens" | The model needed a longer reply: raise `max_tokens` in the profile |
 | "the model declined to answer" | The API's safety classifiers refused the request; the log says the category. Reword the task |
 | "possible context truncation" | With your own server: the conversation does not fit in its `num_ctx`. Raise it in the model's configuration (carefully, section 3) |

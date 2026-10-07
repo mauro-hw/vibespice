@@ -8,9 +8,14 @@ retries (urllib, standard library only).
 The agent loop only talks to a Provider and the Conversation it creates. The conversation
 keeps the messages in the provider's own format and only ever appends to them: Claude
 rejects a history whose earlier turns were edited, and the other APIs do not mind.
+
+Replies can stream in (server-sent events): then timeout is the longest silence between two
+pieces, not the whole reply, so a long reply that keeps coming is never cut, neither here nor
+by a proxy in front of the server.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import random
 import re
@@ -119,13 +124,15 @@ class Provider:
     quick_think: str | None = None   # the cheapest reasoning, for the tests in `check`
 
     def __init__(self, url: str, key: str, model: str, ca: str = "", timeout: float = 900.0,
-                 max_tokens: int | None = None, fallbacks: bool = True):
+                 max_tokens: int | None = None, fallbacks: bool = True, stream: bool = True):
         self.url = url.rstrip("/")
         self.key = key
         self.model = model
         self.timeout = timeout
         self.max_tokens = max_tokens
         self.fallbacks = fallbacks
+        self.stream = stream          # replies in pieces, where the provider supports it
+        self.progress = None          # progress(reasoning_chars, text_chars) while one streams
         self.ctx = ssl.create_default_context(cafile=ca) if ca else None
 
     # --- What each provider defines -----------------------------------------------------
@@ -181,16 +188,70 @@ class Provider:
                 time.sleep(wait)
         raise AssertionError("unreachable")
 
+    def stream_events(self, path: str, body: dict):
+        """POST whose reply is a stream of server-sent events: yields each 'data:' event as a
+        dict. It retries like request() only until the stream starts; after that, timeout is
+        the longest silence allowed between two pieces."""
+        for attempt in range(RETRIES + 1):
+            try:
+                r = self._open("POST", path, body, None, "text/event-stream")
+                break
+            except Retryable as e:
+                if attempt == RETRIES:
+                    raise APIError(f"{e} (after {RETRIES + 1} attempts)") from None
+                wait = e.retry_after if e.retry_after is not None \
+                    else min(MAX_WAIT, 2.0 ** (attempt + 1)) * random.uniform(1.0, 1.25)
+                wait = min(MAX_WAIT, max(0.0, wait))
+                print(c(f"    ⚠ {e}: retrying in {wait:.0f} s ({attempt + 1}/{RETRIES})",
+                        YELLOW))
+                time.sleep(wait)
+        with r:
+            try:
+                for raw in r:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        return
+                    try:
+                        event = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(event, dict):
+                        yield event
+            except TimeoutError:
+                raise APIError(f"The reply stopped coming for {self.timeout:.0f} s (raise "
+                               "timeout in your profile if the server pauses for long).") \
+                    from None
+            except (ConnectionResetError, ConnectionAbortedError, http.client.IncompleteRead):
+                raise APIError(f"The connection with {self.url} dropped while the reply was "
+                               "coming in.") from None
+
     def _once(self, method: str, path: str, body, timeout: float | None):
+        try:
+            with self._open(method, path, body, timeout) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except (ConnectionResetError, ConnectionAbortedError):
+            raise Retryable(f"connection dropped by {self.url}") from None
+        except TimeoutError:
+            raise APIError(f"No reply within {timeout or self.timeout:.0f} s (raise timeout in "
+                           "your profile if the model thinks for long).") from None
+        except json.JSONDecodeError:
+            raise APIError(f"Non-JSON reply at {path}. Does url point to a {self.label} "
+                           "server?") from None
+
+    def _open(self, method: str, path: str, body, timeout: float | None,
+              accept: str = "application/json"):
+        """The open response (the caller closes it), or Retryable / APIError."""
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(
             self.url + path, data=data, method=method,
-            headers={"Content-Type": "application/json", "Accept": "application/json",
+            headers={"Content-Type": "application/json", "Accept": accept,
                      **self.headers(path)})
         wait = timeout or self.timeout
         try:
-            with urllib.request.urlopen(req, timeout=wait, context=self.ctx) as r:
-                return json.loads(r.read().decode("utf-8"))
+            return urllib.request.urlopen(req, timeout=wait, context=self.ctx)
         except urllib.error.HTTPError as e:
             detail = error_detail(e.read().decode("utf-8", "replace"))
             text = f"HTTP {e.code} at {path}: {detail}"
@@ -208,9 +269,6 @@ class Provider:
         except TimeoutError:
             raise APIError(f"No reply within {wait:.0f} s (raise timeout in your profile if "
                            "the model thinks for long).") from None
-        except json.JSONDecodeError:
-            raise APIError(f"Non-JSON reply at {path}. Does url point to a {self.label} "
-                           "server?") from None
 
 
 def error_detail(text: str) -> str:

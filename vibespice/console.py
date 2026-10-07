@@ -47,6 +47,7 @@ class Heartbeat:
     def __init__(self, text: str, every: float = 5.0):
         self.text, self.every = text, every
         self.active = sys.stdout.isatty()
+        self.extra = ""
         self._stop = threading.Event()
 
     def __enter__(self):
@@ -58,8 +59,15 @@ class Heartbeat:
 
     def _loop(self) -> None:
         while not self._stop.wait(self.every):
-            line = f"    ⏳ {self.text}… {fmt_dur(time.perf_counter() - self._t0)}"
+            line = f"    ⏳ {self.text}… {fmt_dur(time.perf_counter() - self._t0)}" \
+                + (f" · {self.extra}" if self.extra else "")
             print("\r" + c(line, GREY) + "\033[K", end="", flush=True)
+
+    def progress(self, reasoning: int, text: int) -> None:
+        """While a reply streams in: how much of it has arrived."""
+        self.extra = " · ".join(p for p in (
+            f"{reasoning / 1000:.1f}k characters of reasoning" if reasoning else "",
+            f"{text / 1000:.1f}k of text" if text else "") if p)
 
     def __exit__(self, *exc) -> bool:
         if self.active:
