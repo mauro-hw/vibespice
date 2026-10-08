@@ -249,7 +249,7 @@ def without_origin(data: dict, measured: dict[str, float], numbers: list[float],
 def run_agent(provider: Provider, task: str, args, log: RunLog, wants_json: bool,
               num_ctx: int | None, measured: dict | None = None,
               derived: dict | None = None, review=None) -> dict:
-    """review(data) -> text or None: a program built on vibespice can check the final JSON
+    """review(data) -> text or None: a program built on VibeSPICE can check the final JSON
     and, with a text, send it back to the model in the same conversation (twice at most)."""
     native = args.mode == "native"
     offered = hs.schemas()

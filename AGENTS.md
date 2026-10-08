@@ -46,7 +46,7 @@ command once installed):
 
 ## Extension points
 
-A program built on vibespice (an experimental lab, say) can add to it without changing the
+A program built on VibeSPICE (an experimental lab, say) can add to it without changing the
 engine:
 
 - **Extra tools:** `tools.register_tool(tools.ExtraTool(...))`. They are offered after the

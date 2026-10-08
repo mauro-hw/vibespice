@@ -3,7 +3,7 @@
 # Copyright 2026 Mauro Rodriguez Blasco
 # Additional term under section 7(b) of the license: see NOTICE.
 """
-A program built on vibespice, for the tests: it uses the two extension points.
+A program built on VibeSPICE, for the tests: it uses the two extension points.
 
 - tools.register_tool(): an extra tool, 'measure_divider', with a line for the system
   prompt; what it simulates counts for the origin check.

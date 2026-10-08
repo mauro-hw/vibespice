@@ -13,7 +13,7 @@ Tools:
   - standard_values      nearest E3...E96 values to a given one
   - calculate            safe calculator (LLMs are bad at mental arithmetic)
 
-A program built on vibespice can offer more tools with register_tool() (see ExtraTool).
+A program built on VibeSPICE can offer more tools with register_tool() (see ExtraTool).
 """
 from __future__ import annotations
 
@@ -1004,7 +1004,7 @@ _DISPATCH = {
 
 
 # ---------------------------------------------------------------------------
-# Extra tools: the ones a program built on vibespice registers
+# Extra tools: the ones a program built on VibeSPICE registers
 # ---------------------------------------------------------------------------
 @dataclass
 class ExtraTool:

@@ -13,7 +13,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the maintainer and their coding agents), a code of conduct (Contributor Covenant 2.1), a
   security policy with private reporting, and forms for bug reports, compatibility reports
   ("I tried it on…") and feature requests, plus a pull request checklist.
-- Extension points for programs built on vibespice: extra tools
+- Extension points for programs built on VibeSPICE: extra tools
   (`tools.register_tool`), offered after the built-in ones with an optional line in the
   system prompt and counted for the origin check, and a review of the final answer
   (`agent.run_once(review=...)`) that can send it back to the model. Nothing changes for
