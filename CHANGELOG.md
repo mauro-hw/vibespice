@@ -20,7 +20,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   waiting line shows how much reasoning and text have arrived. The Claude API still answers
   in one piece.
 
-- While a reply streams in, vibespice enforces `max_tokens` itself (and
+- While a reply streams in, VibeSPICE enforces `max_tokens` itself (and
   `VIBESPICE_MAX_TOKENS` sets it): an Open WebUI with Ollama ignored both `max_tokens` and
   Ollama's `num_predict`, and one reply ran to 171 000 tokens in 74 minutes. Closing the
   stream also stops the generation on the server.

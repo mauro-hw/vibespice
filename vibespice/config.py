@@ -113,7 +113,7 @@ OPTIONAL = """# Optional in any profile:
 # timeout = 900                   # seconds to wait for each model reply (if it streams in: the
 #                                 # longest pause allowed while it keeps coming)
 # max_tokens = 16000              # cap on each reply (the Claude API needs one: 16000 by default;
-#                                 # with streaming, vibespice enforces it even if the server doesn't)
+#                                 # with streaming, VibeSPICE enforces it even if the server doesn't)
 # fallbacks = false               # Claude: don't hand a declined request to a fallback model
 # stream = false                  # Open WebUI and OpenAI-compatible APIs: the whole reply at once
 #                                 # instead of in pieces (pieces keep proxies from cutting it)
