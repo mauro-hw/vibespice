@@ -14,6 +14,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   security policy with private reporting, and forms for bug reports, compatibility reports
   ("I tried it on…") and feature requests, plus a pull request checklist.
 
+- `simulate` warns about a `.ac` line with its numbers in another order (`.ac lin 900 1100
+  1`, the points last): ngspice only says it "assumes default parameter(s)", sweeps something
+  else and every `.meas` looks in the wrong place. qwen3.8 lost whole runs of a filter
+  challenge to it. The warning gives the order with an example.
+
 ### Changed
 
 - The public name is now **VibeSPICE** (SPICE is an acronym). The command, the package, the
