@@ -80,12 +80,18 @@ def parse_chat(resp: dict) -> Reply:
                  stop=stop, raw_text=raw, raw=resp)
 
 
-def collect(events, progress=None) -> dict:
+def collect(events, progress=None, limit: int | None = None) -> dict:
     """The chunks of a streamed chat completion, put back together as one non-streamed
-    response (for parse_chat). progress(reasoning_chars, text_chars) after each chunk."""
+    response (for parse_chat). progress(reasoning_chars, text_chars) after each chunk.
+
+    limit: max_tokens, enforced here too, because some servers ignore it (an Open WebUI with
+    Ollama ignored both max_tokens and num_predict, and one reply ran to 171 000 tokens). Past
+    it, the stream is closed, which also stops the generation on the server, and the reply
+    ends as if cut by the server (finish_reason 'length'). Tokens are estimated: the larger
+    of the chunks received and the characters / 4."""
     content, reasoning, calls = [], [], {}
     finish, usage = None, None
-    n_reasoning = n_content = 0
+    n_reasoning = n_content = pieces = 0
     for ev in events:
         if ev.get("error"):
             raise APIError("The server stopped the reply: " + error_detail(json.dumps(ev)))
@@ -113,8 +119,13 @@ def collect(events, progress=None) -> dict:
                     slot["function"]["arguments"] += args
             if ch.get("finish_reason"):
                 finish = ch["finish_reason"]
+            pieces += 1
         if progress:
             progress(n_reasoning, n_content)
+        if limit and max(pieces, (n_reasoning + n_content) // 4) > limit:
+            events.close()
+            finish = "length"
+            break
     message = {"role": "assistant", "content": "".join(content)}
     if reasoning:
         message["reasoning_content"] = "".join(reasoning)
@@ -139,7 +150,8 @@ class OpenAIChatProvider(Provider):
         if not self.stream:
             return parse_chat(self.request("POST", self.chat_path, body))
         body.update(self.stream_extras())
-        return parse_chat(collect(self.stream_events(self.chat_path, body), self.progress))
+        return parse_chat(collect(self.stream_events(self.chat_path, body), self.progress,
+                                  self.max_tokens))
 
     def stream_extras(self) -> dict:
         """What a streamed request adds (OpenAI: ask for the usage in the last chunk)."""

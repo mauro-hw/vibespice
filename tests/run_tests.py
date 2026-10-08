@@ -81,6 +81,9 @@ CASES = [
     ("challenge7", ["bench", "7"], ["the best possible!", "Result: PASS"],
      {"VIBESPICE_STREAM": "no"}),
     ("challenge2", ["check"], ["stream must be true or false"], {"VIBESPICE_STREAM": "maybe"}),
+    # A server that ignores max_tokens: while streaming, the client cuts the reply itself
+    ("runaway", ["bench", "0"], ["empty reply", "the reply was cut at max_tokens",
+                                 "Result: PASS"], {"VIBESPICE_MAX_TOKENS": "300"}),
     # Free tasks: no verification; the task can come from a file
     ("cold", ["run", "Design a 12 V to 5 V divider"],
      ["═══ Free task ═══", "simulate×1", "Result: UNVERIFIED"]),

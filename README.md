@@ -384,7 +384,9 @@ certificate), `timeout` (seconds to wait for each reply, 900 by default; when th
 streams in, the longest pause allowed while it keeps coming), `max_tokens` and `stream`.
 With Open WebUI and OpenAI-compatible APIs, replies stream in by default: a long reply is
 never cut while it keeps coming, not even by a proxy in front of the server, and the waiting
-line shows how much has arrived. `stream = false` asks for each reply in one piece.
+line shows how much has arrived. `stream = false` asks for each reply in one piece. While a
+reply streams in, vibespice enforces `max_tokens` itself, because some servers ignore it: a
+model whose reasoning runs away then stops at the cap instead of keeping the GPU busy.
 Outside the profiles, `logs_dir` moves the results folder and `ngspice` sets the path of the
 executable.
 

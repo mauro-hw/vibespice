@@ -409,6 +409,13 @@ def model_reply(scenario: str, payload: dict) -> dict:
             return {"thinking": "Thinking a little.",
                     "tool_calls": [tc("simulate", {"netlist": NET18})]}
         return {"content": '```json\n{"vout_V": 5.0323, "current_mA": 0.3871}\n```'}
+    if scenario == "runaway":    # ignores max_tokens, like the real one: the client must cut it
+        if n == 0:
+            return {"thinking": "Let me think again about it. " * 300, "content": ""}
+        if n == 1:
+            assert last.startswith("Your reply was empty"), "empty-reply nudge after the cut"
+            return {"tool_calls": [tc("simulate", {"netlist": NET18})]}
+        return {"content": '```json\n{"vout_V": 5.03226, "current_mA": 0.387097}\n```'}
     if scenario == "slow":       # each reply takes about 3 s (see _stream and do_POST)
         if n == 0:
             return {"thinking": "Thinking slowly about the divider.",

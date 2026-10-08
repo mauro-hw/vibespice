@@ -38,6 +38,7 @@ ENV = {
     "VIBESPICE_CA": "ca",
     "VIBESPICE_TIMEOUT": "timeout",
     "VIBESPICE_STREAM": "stream",
+    "VIBESPICE_MAX_TOKENS": "max_tokens",
 }
 TOP_KEYS = {"default_profile", "logs_dir", "ngspice", "profiles"}
 PROFILE_KEYS = {"provider", "url", "api_key", "model", "ca", "timeout", "max_tokens",
@@ -111,7 +112,8 @@ OPTIONAL = """# Optional in any profile:
 # ca = "/path/to/your-ca.pem"     # CA certificate, for a server with its own HTTPS certificate
 # timeout = 900                   # seconds to wait for each model reply (if it streams in: the
 #                                 # longest pause allowed while it keeps coming)
-# max_tokens = 16000              # cap on each reply (the Claude API needs one: 16000 by default)
+# max_tokens = 16000              # cap on each reply (the Claude API needs one: 16000 by default;
+#                                 # with streaming, vibespice enforces it even if the server doesn't)
 # fallbacks = false               # Claude: don't hand a declined request to a fallback model
 # stream = false                  # Open WebUI and OpenAI-compatible APIs: the whole reply at once
 #                                 # instead of in pieces (pieces keep proxies from cutting it)
