@@ -24,6 +24,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   else and every `.meas` looks in the wrong place. qwen3.8 lost whole runs of a filter
   challenge to it. The warning gives the order with an example.
 
+- Replies stream in with Open WebUI and OpenAI-compatible APIs (`stream = true` by default
+  in every profile; `stream = false` or `VIBESPICE_STREAM=false` turns it off). A long reply
+  is never cut while it keeps coming, not even by a proxy in front of the server (an Apache
+  in front of Open WebUI cut every reply longer than 5 minutes with an `HTTP 502`), and the
+  waiting line shows how much reasoning and text have arrived. The Claude API still answers
+  in one piece.
+
+- While a reply streams in, VibeSPICE enforces `max_tokens` itself (and
+  `VIBESPICE_MAX_TOKENS` sets it): an Open WebUI with Ollama ignored both `max_tokens` and
+  Ollama's `num_predict`, and one reply ran to 171 000 tokens in 74 minutes. Closing the
+  stream also stops the generation on the server.
+
 ### Changed
 
 - The public name is now **VibeSPICE** (SPICE is an acronym). The command, the package, the
@@ -31,6 +43,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   changes in the docs, the menu, `init`, `--version`, the desktop notification and in what
   `vibespice mcp` tells chat apps: the server title and the first and last lines of its
   instructions to the model (a prompt change; nothing else in them changed).
+- With streaming, `timeout` is the longest pause allowed while a reply keeps coming, not the
+  time of the whole reply.
 
 ## [0.1.0] - 2026-10-06
 

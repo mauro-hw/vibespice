@@ -37,10 +37,12 @@ ENV = {
     "VIBESPICE_MODEL": "model",
     "VIBESPICE_CA": "ca",
     "VIBESPICE_TIMEOUT": "timeout",
+    "VIBESPICE_STREAM": "stream",
+    "VIBESPICE_MAX_TOKENS": "max_tokens",
 }
 TOP_KEYS = {"default_profile", "logs_dir", "ngspice", "profiles"}
 PROFILE_KEYS = {"provider", "url", "api_key", "model", "ca", "timeout", "max_tokens",
-                "fallbacks"}
+                "fallbacks", "stream"}
 KEY_HELP = {
     "anthropic": "create one in the Claude Console (https://platform.claude.com) and paste "
                  "it (it starts with sk-ant-), or set ANTHROPIC_API_KEY",
@@ -108,9 +110,13 @@ EXAMPLES = {
 
 OPTIONAL = """# Optional in any profile:
 # ca = "/path/to/your-ca.pem"     # CA certificate, for a server with its own HTTPS certificate
-# timeout = 900                   # seconds to wait for each model reply
-# max_tokens = 16000              # cap on each reply (the Claude API needs one: 16000 by default)
+# timeout = 900                   # seconds to wait for each model reply (if it streams in: the
+#                                 # longest pause allowed while it keeps coming)
+# max_tokens = 16000              # cap on each reply (the Claude API needs one: 16000 by default;
+#                                 # with streaming, VibeSPICE enforces it even if the server doesn't)
 # fallbacks = false               # Claude: don't hand a declined request to a fallback model
+# stream = false                  # Open WebUI and OpenAI-compatible APIs: the whole reply at once
+#                                 # instead of in pieces (pieces keep proxies from cutting it)
 """
 
 PLACEHOLDER_PROFILE = {"provider": "anthropic", "api_key": EXAMPLE_KEY, "model": "claude-opus-5-5"}
@@ -124,7 +130,7 @@ def profile_block(name: str, profile: dict, note: str = "") -> str:
     """A [profiles.NAME] table. Strings are written as JSON strings, which TOML accepts."""
     lines = [f"[profiles.{name}]"]
     for key in ("provider", "url", "api_key", "model", "ca", "timeout", "max_tokens",
-                "fallbacks"):
+                "fallbacks", "stream"):
         if key in profile:
             v = profile[key]
             lines.append(f"{key} = " + (("true" if v else "false") if isinstance(v, bool)
@@ -171,6 +177,7 @@ class Settings:
     timeout: float = DEFAULT_TIMEOUT
     max_tokens: int | None = None
     fallbacks: bool = True
+    stream: bool = True
     ngspice: str = "ngspice"
     logs: Path = field(default_factory=default_logs_dir)
     from_env: list[str] = field(default_factory=list)
@@ -250,6 +257,14 @@ def load(profile: str | None = None) -> Settings:
             s.fallbacks = values["fallbacks"]
         else:
             s.problems.append(f"fallbacks must be true or false (now: {values['fallbacks']})")
+    if "stream" in values:
+        v = values["stream"]
+        v = {"true": True, "yes": True, "1": True, "false": False, "no": False, "0": False} \
+            .get(v.strip().lower(), v) if isinstance(v, str) else v
+        if isinstance(v, bool):
+            s.stream = v
+        else:
+            s.problems.append(f"stream must be true or false (now: {values['stream']})")
 
     s.ngspice = os.environ.get("VIBESPICE_NGSPICE") or _text(data.get("ngspice")) or "ngspice"
     logs = os.environ.get("VIBESPICE_LOGS") or _text(data.get("logs_dir"))
