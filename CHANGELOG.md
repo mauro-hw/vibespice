@@ -13,6 +13,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the maintainer and their coding agents), a code of conduct (Contributor Covenant 2.1), a
   security policy with private reporting, and forms for bug reports, compatibility reports
   ("I tried it on…") and feature requests, plus a pull request checklist.
+- Extension points for programs built on VibeSPICE: extra tools
+  (`tools.register_tool`), offered after the built-in ones with an optional line in the
+  system prompt and counted for the origin check, and a review of the final answer
+  (`agent.run_once(review=...)`) that can send it back to the model. Nothing changes for
+  the model unless a program uses them. See "Extension points" in `AGENTS.md`.
+
+- `simulate` warns about a `.ac` line with its numbers in another order (`.ac lin 900 1100
+  1`, the points last): ngspice only says it "assumes default parameter(s)", sweeps something
+  else and every `.meas` looks in the wrong place. qwen3.8 lost whole runs of a filter
+  challenge to it. The warning gives the order with an example.
+
 - Replies stream in with Open WebUI and OpenAI-compatible APIs (`stream = true` by default
   in every profile; `stream = false` or `VIBESPICE_STREAM=false` turns it off). A long reply
   is never cut while it keeps coming, not even by a proxy in front of the server (an Apache

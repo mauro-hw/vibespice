@@ -409,6 +409,17 @@ def model_reply(scenario: str, payload: dict) -> dict:
             return {"thinking": "Thinking a little.",
                     "tool_calls": [tc("simulate", {"netlist": NET18})]}
         return {"content": '```json\n{"vout_V": 5.0323, "current_mA": 0.3871}\n```'}
+    if scenario == "extension":  # tests/extension_demo.py: an extra tool and a review
+        json0 = '```json\n{"vout_V": 5.03226, "current_mA": 0.387097}\n```'
+        if n == 0:
+            assert "call 'measure_divider' (demo tool)" in msgs[0]["content"], "tool hint"
+            assert "measure_divider" in json.dumps(payload.get("tools")), "extra tool schema"
+            return {"tool_calls": [tc("measure_divider", {"r1": "18k", "r2": "13k"})]}
+        if n == 1:
+            assert "Divider simulated: v(out) = 5.03226 V" in last, "extra tool result"
+            return {"content": json0}
+        assert "Review: check the current" in last, "review notice"
+        return {"content": "Checked again.\n" + json0}
     if scenario == "runaway":    # ignores max_tokens, like the real one: the client must cut it
         if n == 0:
             return {"thinking": "Let me think again about it. " * 300, "content": ""}

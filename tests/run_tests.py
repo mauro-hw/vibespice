@@ -411,6 +411,25 @@ def mcp_tests(tmp: Path, env: dict) -> int:
     return failures
 
 
+def extension_tests(tmp: Path, env: dict) -> int:
+    """The extension points, through tests/extension_demo.py: an extra tool (its hint, its
+    call and its simulations for the origin check) and the review of the answer."""
+    srv, url = fs.start_in_background("extension")
+    try:
+        r = subprocess.run([sys.executable, str(ROOT / "tests" / "extension_demo.py")],
+                           cwd=tmp, env=dict(env, VIBESPICE_URL=url), capture_output=True,
+                           text=True, timeout=120)
+    finally:
+        srv.shutdown()
+    out = r.stdout + r.stderr
+    expected = ["═══ Warm-up: simulate a given divider · extension demo ═══",
+                "→ measure_divider", "⟳ Review: check the current",
+                "✅ The results it reports come from its own simulations", "Result: PASS"]
+    missing = [e for e in expected if e not in out]
+    return report("extension demo: extra tool and review",
+                  r.returncode == 0 and not missing and "Traceback" not in out, out, missing)
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="vibespice_tests_"))
     (tmp / "task.txt").write_text("Design a divider that gives 5 V from 12 V.\n",
@@ -457,6 +476,7 @@ def main() -> int:
     failures += config_tests(tmp, env)
     failures += wizard_tests(tmp)
     failures += mcp_tests(tmp, env)
+    failures += extension_tests(tmp, env)
 
     shutil.rmtree(tmp, ignore_errors=True)
     print("\nAll tests passed." if not failures else f"\n{failures} test(s) failed.")

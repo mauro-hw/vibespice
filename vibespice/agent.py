@@ -189,6 +189,9 @@ When you finish:
 - If the task asks for a ```json block, end with it."""
 
 
+_BEFORE_HINTS = "- If a tool returns an error"     # extra tools' hints go before this line
+
+
 TEXT_MODE_PROMPT = """
 
 # Tools
@@ -246,10 +249,15 @@ def without_origin(data: dict, measured: dict[str, float], numbers: list[float],
 
 def run_agent(provider: Provider, task: str, args, log: RunLog, wants_json: bool,
               num_ctx: int | None, measured: dict | None = None,
-              derived: dict | None = None) -> dict:
+              derived: dict | None = None, review=None) -> dict:
+    """review(data) -> text or None: a program built on VibeSPICE can check the final JSON
+    and, with a text, send it back to the model in the same conversation (twice at most)."""
     native = args.mode == "native"
     offered = hs.schemas()
     system = SYSTEM_PROMPT
+    hints = "".join(f"- {h}\n" for h in hs.hints())
+    if hints:
+        system = system.replace(_BEFORE_HINTS, hints + _BEFORE_HINTS, 1)
     if not native:
         system += TEXT_MODE_PROMPT + json.dumps(
             [e["function"] for e in offered], ensure_ascii=False, indent=1)
@@ -266,8 +274,8 @@ def run_agent(provider: Provider, task: str, args, log: RunLog, wants_json: bool
           "context": num_ctx}
     t_start = time.perf_counter()
     last_signatures: list[str] = []
-    nudges = {"json": 0, "empty": 0, "loop": 0, "origin": 0}
-    numbers: list[float] = []          # values the model got from 'simulate'
+    nudges = {"json": 0, "empty": 0, "loop": 0, "origin": 0, "review": 0}
+    numbers: list[float] = []          # values the model got from 'simulate' (or extra tools)
     quantities: list[dict] = []        # the same, named and per simulation (derived)
     prev_tokens = 0
 
@@ -366,6 +374,9 @@ def run_agent(provider: Provider, task: str, args, log: RunLog, wants_json: bool
                         quantities.append(hs.quantities_of(d))
                     except (hs.NetlistError, hs.SimulationError):
                         pass
+                for d in hs.simulations_of(l["name"]):     # what an extra tool simulated
+                    numbers += hs.numbers_of(d)
+                    quantities.append(hs.quantities_of(d))
                 print("    " + c("→ " + call_summary(l["name"], l["args"]), BLUE))
                 first = [x for x in result.splitlines() if x.strip()][:3]
                 color = RED if failed else GREY
@@ -446,6 +457,14 @@ def run_agent(provider: Provider, task: str, args, log: RunLog, wants_json: bool
             log.md_add(f"> ⚠ {notice}")
             continue
         st["invented"] = missing
+        notice = review(data) if data and review is not None else None
+        if notice and nudges["review"] < 2:
+            nudges["review"] += 1
+            conv.add_reply(reply)
+            conv.add_user(notice)
+            print(c(f"    ⟳ {shorten(notice, 200)}", BLUE))
+            log.md_add(f"> ⟳ {notice}")
+            continue
         st.update(final=visible, json=data, state="ok")
         break
 
@@ -523,7 +542,10 @@ def append_csv(row: dict) -> None:
         w.writerow({k: (f"{v:.1f}" if isinstance(v, float) else v) for k, v in row.items()})
 
 
-def run_once(provider: Provider, task, challenge, args, label, num_ctx, n_rep=None) -> dict:
+def run_once(provider: Provider, task, challenge, args, label, num_ctx, n_rep=None,
+             heading: str | None = None, review=None) -> dict:
+    """One run, verified and logged. heading replaces " · repetition N" after the title;
+    review goes to run_agent."""
     log = RunLog(label + (f"_rep{n_rep}" if n_rep else ""))
     tools = [e["function"]["name"] for e in hs.schemas()]
     batch = getattr(args, "batch_kind", "single")
@@ -540,7 +562,7 @@ def run_once(provider: Provider, task, challenge, args, label, num_ctx, n_rep=No
                + ", ".join(tools) + f"\n- Version: {__version__} · Code: {code_version()} · "
                f"Batch: {batch}")
     title = challenge.title if challenge else "Free task"
-    rep = f" · repetition {n_rep}" if n_rep else ""
+    rep = heading or (f" · repetition {n_rep}" if n_rep else "")
     print(c(f"\n═══ {title}{rep} ═══", BOLD))
     print(c(f"{provider.name} · model {provider.model} · reasoning: {args.think} · tools: "
             f"{args.mode}" + (f" · context: {num_ctx or 'the server default'}"
@@ -549,7 +571,7 @@ def run_once(provider: Provider, task, challenge, args, label, num_ctx, n_rep=No
     try:
         st = run_agent(provider, task, args, log, wants_json=challenge is not None,
                        num_ctx=num_ctx, measured=challenge.measured if challenge else None,
-                       derived=challenge.derived if challenge else None)
+                       derived=challenge.derived if challenge else None, review=review)
         print(c("─" * 60, GREY))
         print(st["final"] or c("(no final answer)", RED))
         print(c("─" * 60, GREY))

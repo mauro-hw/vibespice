@@ -12,6 +12,8 @@ Tools:
   - analyze_tolerances   corners or Monte Carlo over a netlist
   - standard_values      nearest E3...E96 values to a given one
   - calculate            safe calculator (LLMs are bad at mental arithmetic)
+
+A program built on VibeSPICE can offer more tools with register_tool() (see ExtraTool).
 """
 from __future__ import annotations
 
@@ -27,6 +29,8 @@ import subprocess
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Callable
 
 NGSPICE = "ngspice"       # the executable; the configuration can change it
 SIM_TIMEOUT = 30          # seconds per simulation
@@ -157,6 +161,29 @@ _RUN_ANALYSES = {"dc", "ac", "tran", "noise", "tf", "sens", "pz", "disto"}
 _RE_OUTPUT = re.compile(r"^[A-Za-z0-9_#().,+\-*/ ]{1,80}$")
 
 
+def _ac_problems(line: str) -> list[str]:
+    """A .ac line that ngspice would not take as meant. Models often write the points last
+    ('.ac lin 900 1100 1'): ngspice only warns that it "assumes default parameter(s)",
+    sweeps something else and every .meas looks in the wrong place."""
+    parts = line.split()
+    order = ("The order is .ac dec|oct|lin <points> <start frequency> <stop frequency>, with "
+             "start < stop, e.g. .ac dec 100 10 100k")
+    if len(parts) < 5 or parts[1].lower() not in ("dec", "oct", "lin"):
+        return [f"'{line}': {order}."]
+    try:
+        n, f1, f2 = (spice_value(p) for p in parts[2:5])
+    except ValueError:
+        return []
+    if f1 == f2:
+        return [f"The .ac sweep goes from {parts[3]} to {parts[4]}: that is a single point, so "
+                "a .meas WHEN cannot find any crossing."]
+    if f1 > f2 or f1 <= 0 or n < 1 or n != int(n):
+        return [f"'{line}' asks for {parts[2]} points from {parts[3]} to {parts[4]}, which "
+                f"ngspice does not take as meant (it sweeps with default values instead, and "
+                f"the .meas look in the wrong place). {order}."]
+    return []
+
+
 def prepare_netlist(netlist: str) -> tuple[list[str], dict]:
     """Cleans up the model's netlist and checks it. Returns (lines, info)."""
     if not isinstance(netlist, str) or not netlist.strip():
@@ -206,14 +233,7 @@ def prepare_netlist(netlist: str) -> tuple[list[str], dict]:
                     info["meas"].append(parts[2])
                     info["meas_lines"][parts[2]] = low
             if cmd == "ac":
-                parts = l.split()
-                try:
-                    if len(parts) >= 5 and spice_value(parts[3]) == spice_value(parts[4]):
-                        info["warnings"].append(
-                            f"The .ac sweep goes from {parts[3]} to {parts[4]}: that is a single "
-                            "point, so a .meas WHEN cannot find any crossing.")
-                except ValueError:
-                    pass
+                info["warnings"] += _ac_problems(l)
             lines.append(l)
             continue
         if l.startswith("+"):
@@ -986,8 +1006,9 @@ SCHEMAS = [
 
 
 def schemas() -> list[dict]:
-    """Tools offered to the model on this machine."""
-    return list(SCHEMAS)
+    """Tools offered to the model on this machine: the built-in ones and the available extra
+    ones."""
+    return list(SCHEMAS) + [t.schema for t in _extras()]
 
 
 _DISPATCH = {
@@ -998,11 +1019,60 @@ _DISPATCH = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Extra tools: the ones a program built on VibeSPICE registers
+# ---------------------------------------------------------------------------
+@dataclass
+class ExtraTool:
+    """A tool registered with register_tool(), offered after the built-in ones.
+
+    run() gets the arguments as keywords and returns the text for the model, like the
+    built-in tools (run_tool turns an exception into an ERROR). available() says whether it
+    can be offered on this machine. simulations() returns the simulate_data() dicts of its
+    last run, so the values it simulated count for the origin check. hint is one line for
+    the "How to work" part of the system prompt."""
+    schema: dict
+    run: Callable[..., str]
+    available: Callable[[], bool] = lambda: True
+    simulations: Callable[[], list[dict]] | None = None
+    hint: str = ""
+
+    @property
+    def name(self) -> str:
+        return self.schema["function"]["name"]
+
+
+EXTRA_TOOLS: dict[str, ExtraTool] = {}
+
+
+def register_tool(tool: ExtraTool) -> None:
+    if tool.name in _DISPATCH:
+        raise ValueError(f"'{tool.name}' is a built-in tool")
+    EXTRA_TOOLS[tool.name] = tool
+
+
+def _extras() -> list[ExtraTool]:
+    return [t for t in EXTRA_TOOLS.values() if t.available()]
+
+
+def hints() -> list[str]:
+    """System prompt lines of the extra tools offered."""
+    return [t.hint for t in _extras() if t.hint]
+
+
+def simulations_of(name: str) -> list[dict]:
+    """simulate_data() dicts of the last run of an extra tool (for the origin check)."""
+    t = EXTRA_TOOLS.get(name)
+    return list(t.simulations() or []) if t and t.simulations else []
+
+
 def run_tool(name: str, arguments) -> str:
     """Single entry point: validates and runs. Never raises."""
-    if name not in _DISPATCH:
+    extra = {t.name: t.run for t in _extras()}
+    fn = _DISPATCH.get(name) or extra.get(name)
+    if fn is None:
         return (f"ERROR: tool '{name}' does not exist. Available: "
-                f"{', '.join(_DISPATCH)}.")
+                f"{', '.join([*_DISPATCH, *extra])}.")
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments) if arguments.strip() else {}
@@ -1011,7 +1081,7 @@ def run_tool(name: str, arguments) -> str:
     if not isinstance(arguments, dict):
         return "ERROR: the arguments must be a JSON object."
     try:
-        return _DISPATCH[name](**arguments)
+        return fn(**arguments)
     except TypeError as e:
         return f"ERROR: wrong arguments for '{name}': {e}"
     except Exception as e:  # noqa: BLE001 - the model must always get an answer

@@ -39,10 +39,25 @@ command once installed):
 - `tests/`: a fake LLM server that speaks the three APIs (Open WebUI, OpenAI-compatible
   and Claude, the first two also streamed), with a scripted "model", a scripted MCP client
   and end-to-end tests.
+  `tests/extension_demo.py` is a small program built on the extension points.
 - `CHANGELOG.md`: what changed in each version.
 - `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` and `.github/ISSUE_TEMPLATE/`,
   `.github/pull_request_template.md`: for people who contribute. Keep `CONTRIBUTING.md` and
   the pull request checklist in step with the rules below.
+
+## Extension points
+
+A program built on VibeSPICE (an experimental lab, say) can add to it without changing the
+engine:
+
+- **Extra tools:** `tools.register_tool(tools.ExtraTool(...))`. They are offered after the
+  built-in ones (also over MCP), with an optional line for the system prompt, and what they
+  simulate (`simulations()`) counts for the origin check.
+- **Reviewing the answer:** `agent.run_once(..., review=f)`. `f(data)` gets the final JSON
+  and can return a text that goes back to the model in the same conversation (twice at
+  most). `heading` replaces " · repetition N" after the run's title.
+
+Keep them small and generic, and test them through `tests/extension_demo.py`.
 
 ## Rules
 
