@@ -165,6 +165,11 @@ def selftest() -> int:
           and any(".op" in a for a in d["warnings"])
           and any("must be a number" in a for a in d["warnings"]),
           "an .op next to .ac does not break the .meas, and .meas errors come with advice")
+    w = hs.simulate_data("V1 a 0 AC 1\nR1 a b 1k\nC1 b 0 1u\n.ac lin 900 1100 1\n"
+                         ".meas ac f1 WHEN vm(b)=0.7071068")["warnings"]
+    ok_if(any("asks for 900 points from 1100 to 1" in a and ".ac dec 100 10 100k" in a
+              for a in w) and not hs._ac_problems(".ac dec 100 10 100k"),
+          "a .ac line with its numbers in another order comes with the right order")
     ok_if(hs.simulate("V1 a 0 1\n.control\nop\n.endc").startswith("ERROR"), "blocks .control")
     d = hs.simulate_data("VCC vcc 0 DC 12\nRB vcc b 4.7MEG\nRC vcc c 4.7k\nQ1 c b 0 QN\n"
                          "RB2 vcc b2 10k\nRC2 vcc c2 1k\nQ2 c2 b2 0 QN\n"

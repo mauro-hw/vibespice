@@ -161,6 +161,29 @@ _RUN_ANALYSES = {"dc", "ac", "tran", "noise", "tf", "sens", "pz", "disto"}
 _RE_OUTPUT = re.compile(r"^[A-Za-z0-9_#().,+\-*/ ]{1,80}$")
 
 
+def _ac_problems(line: str) -> list[str]:
+    """A .ac line that ngspice would not take as meant. Models often write the points last
+    ('.ac lin 900 1100 1'): ngspice only warns that it "assumes default parameter(s)",
+    sweeps something else and every .meas looks in the wrong place."""
+    parts = line.split()
+    order = ("The order is .ac dec|oct|lin <points> <start frequency> <stop frequency>, with "
+             "start < stop, e.g. .ac dec 100 10 100k")
+    if len(parts) < 5 or parts[1].lower() not in ("dec", "oct", "lin"):
+        return [f"'{line}': {order}."]
+    try:
+        n, f1, f2 = (spice_value(p) for p in parts[2:5])
+    except ValueError:
+        return []
+    if f1 == f2:
+        return [f"The .ac sweep goes from {parts[3]} to {parts[4]}: that is a single point, so "
+                "a .meas WHEN cannot find any crossing."]
+    if f1 > f2 or f1 <= 0 or n < 1 or n != int(n):
+        return [f"'{line}' asks for {parts[2]} points from {parts[3]} to {parts[4]}, which "
+                f"ngspice does not take as meant (it sweeps with default values instead, and "
+                f"the .meas look in the wrong place). {order}."]
+    return []
+
+
 def prepare_netlist(netlist: str) -> tuple[list[str], dict]:
     """Cleans up the model's netlist and checks it. Returns (lines, info)."""
     if not isinstance(netlist, str) or not netlist.strip():
@@ -210,14 +233,7 @@ def prepare_netlist(netlist: str) -> tuple[list[str], dict]:
                     info["meas"].append(parts[2])
                     info["meas_lines"][parts[2]] = low
             if cmd == "ac":
-                parts = l.split()
-                try:
-                    if len(parts) >= 5 and spice_value(parts[3]) == spice_value(parts[4]):
-                        info["warnings"].append(
-                            f"The .ac sweep goes from {parts[3]} to {parts[4]}: that is a single "
-                            "point, so a .meas WHEN cannot find any crossing.")
-                except ValueError:
-                    pass
+                info["warnings"] += _ac_problems(l)
             lines.append(l)
             continue
         if l.startswith("+"):
